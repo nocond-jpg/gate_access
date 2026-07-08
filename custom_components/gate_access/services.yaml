@@ -1,0 +1,34 @@
+log_open:
+  name: Zapisz otwarcie
+  description: >-
+    Zapisuje otwarcie bramy w historii i logu (bez fizycznego otwierania).
+    Użyj w automatyzacji, np. NFC na domofonie Hikvision, aby odnotować kto otworzył.
+  fields:
+    name:
+      name: Osoba
+      description: Kto otworzył (np. imię przypisane do karty NFC).
+      required: true
+      example: Jan
+      selector:
+        text:
+    source:
+      name: Źródło
+      description: Skąd nastąpiło otwarcie (etykieta w historii).
+      example: NFC domofon
+      selector:
+        text:
+    target:
+      name: Obiekt
+      description: Który obiekt otwarto (opcjonalnie; domyślnie pierwszy skonfigurowany).
+      example: cover.brama
+      selector:
+        entity:
+          domain:
+            - cover
+            - lock
+            - switch
+            - input_boolean
+            - button
+            - input_button
+            - script
+            - light

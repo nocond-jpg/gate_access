@@ -1,0 +1,63 @@
+{
+  "title": "Gate Access",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Gate Access",
+        "description": "Choose the openings to control (gate, wicket…), a log file and optional auto-close time.",
+        "data": {
+          "targets": "Openings (gate, wicket, lock, relay…)",
+          "log_path": "Log file path",
+          "close_after": "Close after (s, 0 = don't close)"
+        }
+      }
+    },
+    "error": {
+      "no_targets": "Select at least one opening."
+    },
+    "abort": {
+      "single_instance_allowed": "The integration is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Gate Access settings",
+        "menu_options": {
+          "targets": "Openings, log and auto-close",
+          "sharing": "Panel sharing",
+          "logging": "Records and statistics"
+        }
+      },
+      "targets": {
+        "title": "Openings and log",
+        "description": "Pick the openings (gate, wicket…), the log file and auto-close time.",
+        "data": {
+          "targets": "Openings (gate, wicket, lock, relay…)",
+          "log_path": "Log file path",
+          "close_after": "Close after (s, 0 = don't close)"
+        }
+      },
+      "sharing": {
+        "title": "Panel sharing",
+        "description": "Turn off to make the panel visible to all HA users (e.g. household members), not only administrators.",
+        "data": {
+          "admin_only": "Administrators only"
+        }
+      },
+      "logging": {
+        "title": "Records and statistics",
+        "description": "Count opens per opening (daily/monthly/yearly) and record gate closings.",
+        "data": {
+          "stats": "Per-opening open statistics",
+          "log_closings": "Also record closings",
+          "delete_password": "Password to clear history (empty = no password)",
+          "rate_limit": "Open limit per link (per minute, 0 = no limit)"
+        }
+      }
+    },
+    "error": {
+      "no_targets": "Select at least one opening."
+    }
+  }
+}
