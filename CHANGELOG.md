@@ -4,6 +4,15 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.1.0] - 2026-07-08
+
+### Dodane
+- Przycisk **Reaktywuj** na wygasłych/wyłączonych dostępach — jednym kliknięciem
+  włącza i re-arm'uje link (licznik do poprzedniej wartości; czasowy przedłużony o 24 h).
+- Nieudane próby w **Historii**: użycie wygasłego/wyłączonego/nieaktywnego linku
+  oraz przekroczenie limitu (zapisywane, z ograniczeniem do 1/min na link).
+- Filtr **Zdarzenie** w Historii: wszystkie / otwarcia / nieudane próby / zamknięcia.
+
 ## [1.0.0] - 2026-07-08
 
 Pierwsze publiczne wydanie.
@@ -37,4 +46,5 @@ Pierwsze publiczne wydanie.
 - Eksport dostępów do CSV / JSON.
 - Menu ustawień w opcjach integracji.
 
+[1.1.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.1.0
 [1.0.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.0.0
