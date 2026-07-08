@@ -80,7 +80,7 @@ header .sub{color:var(--muted);font-size:.82rem;margin-left:auto}
 .pill.live{color:var(--ok);border-color:#2f4636}
 .pill.warn{color:var(--brass-hi);border-color:#4a3a1c}
 .pill.dead{color:var(--danger);border-color:#4a2a28}
-.actions{display:flex;gap:8px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .actions button{background:transparent;border:1px solid var(--line);color:var(--muted);
   border-radius:8px;padding:7px 11px;font-size:.78rem;cursor:pointer}
 .actions button:hover{color:var(--ink);border-color:var(--brass)}
@@ -162,7 +162,8 @@ class GateAccessPanel extends HTMLElement {
       this._ready = true; this._mode = "permanent"; this._open = new Set();
       this._history = []; this._targets = []; this._users = [];
       this._tab = "panel"; this._fRestr = "all"; this._fTarget = "all";
-      this._hFTarget = "all"; this._hFUser = "all"; this._stats = { enabled: false, stats: [] };
+      this._hFTarget = "all"; this._hFUser = "all"; this._hFKind = "all";
+      this._stats = { enabled: false, stats: [] };
       this._boot();
     }
   }
@@ -232,6 +233,7 @@ class GateAccessPanel extends HTMLElement {
         <div id="tab-history" style="display:none">
           <div id="stats-block"></div>
           <div class="filters">
+            <div class="fl"><span>Zdarzenie:</span><select id="h-kind" class="sel"></select></div>
             <div class="fl"><span>Obiekt:</span><select id="h-target" class="sel"></select></div>
             <div class="fl"><span>Użytkownik:</span><select id="h-user" class="sel"></select></div>
           </div>
@@ -276,6 +278,13 @@ class GateAccessPanel extends HTMLElement {
     this.$("h-user").addEventListener("change", (e) => {
       this._hFUser = e.target.value; this._renderHistory(); });
     this.$("hclear").addEventListener("click", () => this._deleteHistory(null));
+    const hk = this.$("h-kind");
+    for (const [v, t] of [["all", "Wszystkie"], ["opened", "Otwarcia"],
+        ["failed", "Nieudane próby"], ["closed", "Zamknięcia"]]) {
+      const o = document.createElement("option");
+      o.value = v; o.textContent = t; hk.appendChild(o);
+    }
+    hk.addEventListener("change", (e) => { this._hFKind = e.target.value; this._renderHistory(); });
     this.$("purge").addEventListener("click", () => this._purge());
     this.$("csv").addEventListener("click", () => this._export("csv"));
     this.$("json").addEventListener("click", () => this._export("json"));
@@ -484,6 +493,21 @@ class GateAccessPanel extends HTMLElement {
     } catch (e) { this._flash(e?.body?.message || "Nie udało się zapisać zmian.", "err"); }
   }
 
+  async _reactivate(u) {
+    const payload = { enabled: true };
+    if (u.uses_total != null) { payload.set_ttl = true; payload.uses_total = u.uses_total; }
+    else if (u.expires_at) {
+      payload.set_ttl = true;
+      payload.expires_at = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    }
+    try {
+      await this._hass.callApi(
+        "PATCH", `gate_access/users/${encodeURIComponent(u.webhook_id)}`, payload);
+      this._flash(`Reaktywowano: ${u.name}. Ten sam link znów działa.`, "ok");
+      this._load();
+    } catch (e) { this._flash(e?.body?.message || "Nie udało się reaktywować.", "err"); }
+  }
+
   async _toggle(u) {
     const cur = u.enabled !== false;
     try {
@@ -613,8 +637,15 @@ class GateAccessPanel extends HTMLElement {
     if (s === "expired") return ["wygasły", "expired"];
     if (s === "disabled") return ["wyłączony", "expired"];
     if (s === "pending") return ["nieaktywny", "closed"];
+    if (s === "rate") return ["limit", "expired"];
     if (s === "closed") return ["zamknięto", "closed"];
     return ["otwarto", "opened"];
+  }
+
+  _kindOf(status) {
+    if (status === "closed") return "closed";
+    if (["expired", "disabled", "pending", "rate"].includes(status)) return "failed";
+    return "opened";
   }
 
   _renderStats() {
@@ -640,7 +671,8 @@ class GateAccessPanel extends HTMLElement {
     const all = this._history || [];
     const rows = all.filter((h) =>
       (this._hFTarget === "all" || h.target === this._hFTarget) &&
-      (this._hFUser === "all" || h.name === this._hFUser));
+      (this._hFUser === "all" || h.name === this._hFUser) &&
+      (this._hFKind === "all" || this._kindOf(h.status) === this._hFKind));
     this.$("hcount").textContent = all.length ? `${rows.length} z ${all.length}` : "";
     if (!all.length) { box.innerHTML = `<div class="empty">Brak zapisanych otwarć.</div>`; return; }
     if (!rows.length) { box.innerHTML = `<div class="empty">Brak zdarzeń pasujących do filtrów.</div>`; return; }
@@ -823,6 +855,7 @@ class GateAccessPanel extends HTMLElement {
             <button class="copy">Kopiuj</button>
             <button class="open">Otwórz</button>
             <button class="toggle">${u.enabled === false ? "Włącz" : "Wyłącz"}</button>
+            ${(act === "expired" || act === "disabled") ? '<button class="react">Reaktywuj</button>' : ""}
             ${u.uses_total != null ? '<button class="reset">Reset</button>' : ""}
             <button class="del">Usuń</button>
           </div>
@@ -844,6 +877,8 @@ class GateAccessPanel extends HTMLElement {
         this._copy(url); this._flash(`Skopiowano link: ${u.name}.`, "ok"); });
       a.querySelector(".open").addEventListener("click", () => window.open(url, "_blank"));
       a.querySelector(".toggle").addEventListener("click", () => this._toggle(u));
+      const react = a.querySelector(".react");
+      if (react) react.addEventListener("click", () => this._reactivate(u));
       const rst = a.querySelector(".reset");
       if (rst) rst.addEventListener("click", () => this._reset(u));
       a.querySelector(".del").addEventListener("click", () => this._remove(u));

@@ -305,6 +305,25 @@ def _add_history(
     del hist[HISTORY_MAX:]
 
 
+async def _maybe_record_rate(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    name: str,
+    webhook_id: str,
+    target: str | None,
+) -> None:
+    """Record a rate-limited attempt, but at most once per link per minute."""
+    hist = hass.data[DOMAIN][entry.entry_id]["history"]
+    now = dt_util.utcnow()
+    for h in hist[:15]:
+        if h.get("webhook_id") == webhook_id and h.get("status") == "rate":
+            ts = dt_util.parse_datetime(h.get("ts", "") or "")
+            if ts and (now - ts).total_seconds() < 60:
+                return
+    _add_history(hass, entry, name, webhook_id, "rate", target, "link")
+    await _save(hass, entry)
+
+
 async def _delete_history(
     hass: HomeAssistant, entry: ConfigEntry, entry_id: str | None
 ) -> int:
@@ -449,6 +468,7 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
             )
 
         if user and not _rate_ok(hass, entry, webhook_id):
+            await _maybe_record_rate(hass, entry, name, webhook_id, target)
             return web.Response(
                 text=_html("Za dużo prób", "Spróbuj ponownie za chwilę.", dim=True),
                 content_type="text/html",
