@@ -24,7 +24,7 @@ from homeassistant.components import panel_custom, webhook
 from homeassistant.components.frontend import add_extra_js_url, async_remove_panel
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import HomeAssistant, ServiceCall, Context, callback
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import (
     async_call_later,
@@ -36,17 +36,20 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_ADMIN_ONLY,
     CONF_CLOSE_AFTER,
+    CONF_CLOSE_MAP,
     CONF_DELETE_PASSWORD,
     CONF_GATE_ENTITY,
     CONF_LOG_CLOSINGS,
     CONF_LOG_PATH,
     CONF_RATE_LIMIT,
+    CONF_SHOW_CLOSE,
     CONF_STATS,
     CONF_TARGETS,
     DEFAULT_ADMIN_ONLY,
     DEFAULT_CLOSE_AFTER,
     DEFAULT_LOG_PATH,
     DEFAULT_RATE_LIMIT,
+    DEFAULT_SHOW_CLOSE,
     DOMAIN,
     EVENT_OPENED,
     PANEL_ICON,
@@ -253,6 +256,59 @@ def _target_name(hass: HomeAssistant, entity_id: str | None) -> str:
     return entity_id
 
 
+def _open_html(
+    tname: str, sub: str, show_close: bool, close_secs: int
+) -> str:
+    """Success page after opening, optionally with a close button + countdown."""
+    icon = (
+        "<svg viewBox='0 0 24 24' width='56' height='56' fill='#c8952f'>"
+        "<path d='M12,2A2,2 0 0,0 10,4V4.5H4.5A2.5,2.5 0 0,0 2,7V19H4V17H20V19H22V7A2.5,2.5 0 0,0 "
+        "19.5,4.5H14V4A2,2 0 0,0 12,2M4.5,6.5H10V8.5H4V7A0.5,0.5 0 0,1 4.5,6.5M14,6.5H19.5A0.5,"
+        "0.5 0 0,1 20,7V8.5H14V6.5M4,10.5H10V12.5H4V10.5M14,10.5H20V12.5H14V10.5M4,14.5H10V16.5H4"
+        "V14.5M14,14.5H20V16.5H14V14.5Z' /></svg>"
+    )
+    button = ""
+    script = ""
+    if show_close or close_secs > 0:
+        button = (
+            "<button id='cbtn' onclick='closeGate()'>Zamknij bramę</button>"
+        )
+        script = (
+            "<script>"
+            f"var secs={close_secs};"
+            "var btn=document.getElementById('cbtn');"
+            "function fmt(s){var m=Math.floor(s/60);var x=s%60;"
+            "return m+':' + (x<10?'0':'') + x;}"
+            "function tick(){ if(secs>0){ btn.textContent='Zamknij (auto za '+fmt(secs)+')';"
+            "secs--; } else { btn.textContent='Zamknięto (auto)'; btn.disabled=true;"
+            "clearInterval(t);} }"
+            "var t=null;"
+            "if(secs>0){ tick(); t=setInterval(tick,1000); }"
+            "async function closeGate(){ btn.disabled=true; if(t)clearInterval(t);"
+            "try{ var r=await fetch(window.location.pathname+'?do=close',{method:'POST'});"
+            "if(r.ok){ btn.textContent='Zamknięto'; } else { btn.textContent='Błąd'; btn.disabled=false; } }"
+            "catch(e){ btn.textContent='Błąd'; btn.disabled=false; } }"
+            "</script>"
+        )
+    return (
+        "<!doctype html><html lang='pl'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Brama</title><style>"
+        "body{margin:0;height:100vh;display:grid;place-items:center;"
+        "font-family:system-ui,sans-serif;background:#14171c;color:#e8e6df}"
+        ".card{text-align:center}h1{font-weight:600;font-size:1.4rem;margin:.6rem 0 .2rem}"
+        "p{color:#8b9099;margin:0}"
+        "#cbtn{margin-top:22px;background:transparent;border:1px solid #c8952f;"
+        "color:#e8b45a;border-radius:12px;padding:12px 20px;font-size:1rem;font-weight:600;"
+        "cursor:pointer;min-width:220px}"
+        "#cbtn:hover{background:#c8952f;color:#1a1206}"
+        "#cbtn:disabled{opacity:.6;cursor:default}"
+        "</style></head><body><div class='card'>"
+        f"{icon}<h1>Otwarto: {tname}</h1><p>{sub}</p>{button}"
+        f"</div>{script}</body></html>"
+    )
+
+
 def _html(name: str, sub: str, dim: bool = False) -> str:
     style = "opacity:.5" if dim else ""
     icon = (
@@ -405,6 +461,64 @@ async def _record_open(
     return await _record(hass, entry, name, target, source, "opened", webhook_id)
 
 
+@callback
+def _mark_own(hass: HomeAssistant, entry: ConfigEntry, ctx_id: str) -> None:
+    """Remember a context we initiated, so the state listener can skip it."""
+    store = hass.data[DOMAIN][entry.entry_id].setdefault("own_ctx", {})
+    now = time.monotonic()
+    store[ctx_id] = now
+    for key, ts in list(store.items()):
+        if now - ts > 15:
+            del store[key]
+
+
+@callback
+def _is_own(hass: HomeAssistant, entry: ConfigEntry, ctx) -> bool:
+    if not ctx:
+        return False
+    store = hass.data[DOMAIN][entry.entry_id].get("own_ctx", {})
+    if ctx.id in store:
+        return True
+    return bool(ctx.parent_id and ctx.parent_id in store)
+
+
+def _close_secs(entry: ConfigEntry, entity_id: str | None) -> int:
+    """Auto-close seconds for a target (per-target map, legacy value as fallback)."""
+    if not entity_id:
+        return 0
+    cmap = _cfg(entry, CONF_CLOSE_MAP, {}) or {}
+    if entity_id in cmap:
+        try:
+            return int(cmap[entity_id] or 0)
+        except (TypeError, ValueError):
+            return 0
+    try:
+        return int(_cfg(entry, CONF_CLOSE_AFTER, DEFAULT_CLOSE_AFTER) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+@callback
+def _schedule_auto_close(
+    hass: HomeAssistant, entry: ConfigEntry, entity_id: str, domain: str
+) -> None:
+    """Schedule an auto-close for any open (webhook, panel, pilot, automation)."""
+    secs = _close_secs(entry, entity_id)
+    closer = CLOSE_ACTIONS.get(domain)
+    if secs <= 0 or not closer:
+        return
+
+    async def _auto_close(_now, _svc=closer, _eid=entity_id):
+        state = hass.states.get(_eid)
+        if state and state.state in ("closed", "closing", "off", "locked"):
+            return  # already closed
+        await hass.services.async_call(
+            _svc[0], _svc[1], {"entity_id": _eid}, blocking=False
+        )
+
+    async_call_later(hass, secs, _auto_close)
+
+
 async def _do_open(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -413,27 +527,31 @@ async def _do_open(
     webhook_id: str | None,
     source: str = "link",
 ) -> str:
-    """Actuate a target (any supported domain), auto-close, then record it."""
+    """Actuate a target, then record it. Auto-close is scheduled by the listener."""
     domain = target.split(".")[0] if target else ""
     opener = OPEN_ACTIONS.get(domain)
     if target and opener:
+        ctx = Context()
+        _mark_own(hass, entry, ctx.id)
         await hass.services.async_call(
-            opener[0], opener[1], {"entity_id": target}, blocking=False
+            opener[0], opener[1], {"entity_id": target}, blocking=False, context=ctx
         )
-        try:
-            close_after = int(_cfg(entry, CONF_CLOSE_AFTER, DEFAULT_CLOSE_AFTER))
-        except (TypeError, ValueError):
-            close_after = 0
-        closer = CLOSE_ACTIONS.get(domain)
-        if close_after > 0 and closer:
-            async def _auto_close(_now, _svc=closer, _eid=target):
-                await hass.services.async_call(
-                    _svc[0], _svc[1], {"entity_id": _eid}, blocking=False
-                )
-
-            async_call_later(hass, close_after, _auto_close)
-
     return await _record_open(hass, entry, name, target, source, webhook_id)
+
+
+async def _do_close(
+    hass: HomeAssistant, entry: ConfigEntry, target: str | None, name: str
+) -> str:
+    """Manual close via the open page's button (logged as source 'link')."""
+    domain = target.split(".")[0] if target else ""
+    closer = CLOSE_ACTIONS.get(domain)
+    if target and closer:
+        ctx = Context()
+        _mark_own(hass, entry, ctx.id)
+        await hass.services.async_call(
+            closer[0], closer[1], {"entity_id": target}, blocking=False, context=ctx
+        )
+    return await _record(hass, entry, name, target, "link", "closed")
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +567,16 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
         target = (user.get("target") if user else None) or _default_target(entry)
 
         act = _activity(user) if user else "active"
+
+        # Close action from the open page's button (?do=close)
+        if request.query.get("do") == "close":
+            if user is None:
+                return web.Response(text="", status=404)
+            if not user.get("enabled", True):
+                return web.Response(text="off", status=403)
+            await _do_close(hass, entry, target, name)
+            return web.Response(text="ok", content_type="text/plain")
+
         if user and act != "active":
             if act == "disabled":
                 head, sub = "Dostęp wyłączony", "Ten dostęp został wyłączony."
@@ -479,8 +607,12 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
             user["uses_left"] = max(0, user["uses_left"] - 1)
 
         tname = await _do_open(hass, entry, target, name, webhook_id)
+        show_close = bool(_cfg(entry, CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE))
+        close_secs = _close_secs(entry, target)
         return web.Response(
-            text=_html(f"Otwarto: {tname}", f"{name} · {datetime.now():%H:%M}"),
+            text=_open_html(
+                tname, f"{name} · {datetime.now():%H:%M}", show_close, close_secs
+            ),
             content_type="text/html",
         )
 
@@ -853,10 +985,14 @@ class GateSettingsView(HomeAssistantView):
         return self.json(
             {
                 "targets": [
-                    {"entity_id": eid, "name": _target_name(hass, eid)}
+                    {
+                        "entity_id": eid,
+                        "name": _target_name(hass, eid),
+                        "close_after": _close_secs(entry, eid),
+                    }
                     for eid in _targets(entry)
                 ],
-                "close_after": int(_cfg(entry, CONF_CLOSE_AFTER, DEFAULT_CLOSE_AFTER) or 0),
+                "show_close": bool(_cfg(entry, CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE)),
                 "log_path": _cfg(entry, CONF_LOG_PATH, DEFAULT_LOG_PATH),
                 "admin_only": bool(_cfg(entry, CONF_ADMIN_ONLY, DEFAULT_ADMIN_ONLY)),
                 "stats": bool(_cfg(entry, CONF_STATS, False)),
@@ -961,11 +1097,13 @@ def _register_state_tracking(hass: HomeAssistant, entry: ConfigEntry) -> None:
         domain = entity_id.split(".")[0]
         old = event.data.get("old_state")
         new = event.data.get("new_state")
-        user_id = event.context.user_id if event.context else None
+        ctx = event.context
+        user_id = ctx.user_id if ctx else None
 
         if _became_open(old, new, domain):
-            if not user_id:
-                return  # automation / our own open — recorded by its own path
+            _schedule_auto_close(hass, entry, entity_id, domain)
+            if _is_own(hass, entry, ctx):
+                return  # our webhook/panel open — already recorded by _do_open
             hass.async_create_task(
                 _log_state(hass, entry, entity_id, "opened", user_id)
             )
@@ -974,6 +1112,8 @@ def _register_state_tracking(hass: HomeAssistant, entry: ConfigEntry) -> None:
         if bool(_cfg(entry, CONF_LOG_CLOSINGS, False)) and _became_closed(
             old, new, domain
         ):
+            if _is_own(hass, entry, ctx):
+                return  # our manual close via link — already recorded by _do_close
             hass.async_create_task(
                 _log_state(hass, entry, entity_id, "closed", user_id)
             )
@@ -988,6 +1128,9 @@ async def _log_state(
     if user_id:
         name = await _person_or_user(hass, user_id)
         source = "ha"
+    elif status == "opened":
+        name = "Pilot"
+        source = "pilot"
     else:
         name = "automat"
         source = "auto"

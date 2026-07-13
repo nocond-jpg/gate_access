@@ -15,11 +15,13 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_ADMIN_ONLY,
     CONF_CLOSE_AFTER,
+    CONF_CLOSE_MAP,
     CONF_DELETE_PASSWORD,
     CONF_GATE_ENTITY,
     CONF_LOG_CLOSINGS,
     CONF_LOG_PATH,
     CONF_RATE_LIMIT,
+    CONF_SHOW_CLOSE,
     CONF_STATS,
     CONF_TARGETS,
     DEFAULT_ADMIN_ONLY,
@@ -28,6 +30,7 @@ from .const import (
     DEFAULT_LOG_CLOSINGS,
     DEFAULT_LOG_PATH,
     DEFAULT_RATE_LIMIT,
+    DEFAULT_SHOW_CLOSE,
     DEFAULT_STATS,
     DOMAIN,
     TARGET_DOMAINS,
@@ -55,11 +58,13 @@ def _targets_schema(defaults: dict) -> vol.Schema:
             vol.Required(
                 CONF_LOG_PATH, default=defaults.get(CONF_LOG_PATH, DEFAULT_LOG_PATH)
             ): selector.TextSelector(),
-            vol.Optional(
-                CONF_CLOSE_AFTER,
-                default=defaults.get(CONF_CLOSE_AFTER, DEFAULT_CLOSE_AFTER),
-            ): _CLOSE_SELECTOR,
         }
+    )
+
+
+def _targets_of(cur: dict) -> list:
+    return cur.get(CONF_TARGETS) or (
+        [cur[CONF_GATE_ENTITY]] if cur.get(CONF_GATE_ENTITY) else []
     )
 
 
@@ -113,8 +118,6 @@ class GateAccessConfigFlow(ConfigFlow, domain=DOMAIN):
             if not user_input.get(CONF_TARGETS):
                 errors["base"] = "no_targets"
             else:
-                if user_input.get(CONF_CLOSE_AFTER) is not None:
-                    user_input[CONF_CLOSE_AFTER] = int(user_input[CONF_CLOSE_AFTER])
                 user_input[CONF_ADMIN_ONLY] = DEFAULT_ADMIN_ONLY
                 return self.async_create_entry(title="Gate Access", data=user_input)
         return self.async_show_form(
@@ -143,6 +146,8 @@ class GateAccessOptionsFlow(OptionsFlow):
             or ([cur[CONF_GATE_ENTITY]] if cur.get(CONF_GATE_ENTITY) else []),
             CONF_LOG_PATH: cur.get(CONF_LOG_PATH, DEFAULT_LOG_PATH),
             CONF_CLOSE_AFTER: int(cur.get(CONF_CLOSE_AFTER, DEFAULT_CLOSE_AFTER) or 0),
+            CONF_CLOSE_MAP: cur.get(CONF_CLOSE_MAP, {}) or {},
+            CONF_SHOW_CLOSE: cur.get(CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE),
             CONF_ADMIN_ONLY: cur.get(CONF_ADMIN_ONLY, DEFAULT_ADMIN_ONLY),
             CONF_STATS: cur.get(CONF_STATS, DEFAULT_STATS),
             CONF_LOG_CLOSINGS: cur.get(CONF_LOG_CLOSINGS, DEFAULT_LOG_CLOSINGS),
@@ -158,9 +163,44 @@ class GateAccessOptionsFlow(OptionsFlow):
             data[CONF_RATE_LIMIT] = int(data[CONF_RATE_LIMIT])
         return self.async_create_entry(title="", data=data)
 
+    def _autoclose_schema(self, cur: dict, targets: list) -> vol.Schema:
+        cmap = cur.get(CONF_CLOSE_MAP, {}) or {}
+        legacy = int(cur.get(CONF_CLOSE_AFTER, 0) or 0)
+        fields: dict = {}
+        for eid in targets:
+            default = int(cmap.get(eid, legacy) or 0)
+            fields[vol.Optional(f"close__{eid}", default=default)] = _CLOSE_SELECTOR
+        fields[
+            vol.Required(
+                CONF_SHOW_CLOSE, default=cur.get(CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE)
+            )
+        ] = selector.BooleanSelector()
+        return vol.Schema(fields)
+
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         return self.async_show_menu(
-            step_id="init", menu_options=["targets", "logging", "sharing"]
+            step_id="init",
+            menu_options=["targets", "autoclose", "logging", "sharing"],
+        )
+
+    async def async_step_autoclose(self, user_input=None) -> ConfigFlowResult:
+        cur = self._current()
+        targets = _targets_of(cur)
+        if user_input is not None:
+            cmap = {}
+            for eid in targets:
+                try:
+                    cmap[eid] = int(user_input.get(f"close__{eid}") or 0)
+                except (TypeError, ValueError):
+                    cmap[eid] = 0
+            return self._save(
+                {
+                    CONF_CLOSE_MAP: cmap,
+                    CONF_SHOW_CLOSE: bool(user_input.get(CONF_SHOW_CLOSE, False)),
+                }
+            )
+        return self.async_show_form(
+            step_id="autoclose", data_schema=self._autoclose_schema(cur, targets)
         )
 
     async def async_step_logging(self, user_input=None) -> ConfigFlowResult:
