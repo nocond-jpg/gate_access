@@ -26,7 +26,8 @@
         "menu_options": {
           "targets": "Obiekty, log i auto-zamykanie",
           "sharing": "Udostępnianie panelu",
-          "logging": "Rejestr i statystyki"
+          "logging": "Rejestr i statystyki",
+          "autoclose": "Auto-zamykanie i przycisk"
         }
       },
       "targets": {
@@ -53,6 +54,13 @@
           "log_closings": "Zapisuj także zamknięcia",
           "delete_password": "Hasło do kasowania historii (puste = bez hasła)",
           "rate_limit": "Limit otwarć na link (na minutę, 0 = bez limitu)"
+        }
+      },
+      "autoclose": {
+        "title": "Auto-zamykanie",
+        "description": "Ustaw czas auto-zamykania osobno dla każdego obiektu (0 = bez zamykania). Działa też przy otwarciu z pilota/automatu. Włącz przycisk zamknięcia na stronie otwarcia.",
+        "data": {
+          "show_close": "Pokaż przycisk zamknięcia na stronie otwarcia"
         }
       }
     },

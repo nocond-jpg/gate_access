@@ -629,7 +629,7 @@ class GateAccessPanel extends HTMLElement {
   }
 
   _sourceLabel(s) {
-    const map = { link: "link", panel: "panel", ha: "HA", auto: "automat", "usługa": "usługa" };
+    const map = { link: "link", panel: "panel", ha: "HA", pilot: "pilot", auto: "automat", "usługa": "usługa" };
     return map[s] || s || "—";
   }
 
@@ -901,18 +901,24 @@ class GateAccessPanel extends HTMLElement {
     const chips = targets.length
       ? targets.map((t) => `<span class="chip">${t.name}</span>`).join("")
       : `<span class="k">brak</span>`;
-    const close = s.close_after ? `${s.close_after} s` : "wyłączone";
+    const closeRows = targets.length
+      ? targets.map((t) =>
+          `<span class="chip">${t.name}: ${t.close_after ? t.close_after + " s" : "—"}</span>`).join("")
+      : `<span class="k">—</span>`;
     const share = s.admin_only ? "tylko administratorzy" : "wszyscy użytkownicy";
+    const btn = s.show_close ? "tak" : "nie";
     box.innerHTML = `
       <div class="item"><span class="k">Obiekty</span>
         <span class="v"><span class="chips">${chips}</span></span></div>
-      <div class="item"><span class="k">Auto-zamykanie</span><span class="v">${close}</span></div>
+      <div class="item"><span class="k">Auto-zamykanie (per obiekt)</span>
+        <span class="v"><span class="chips">${closeRows}</span></span></div>
+      <div class="item"><span class="k">Przycisk zamknięcia na stronie</span><span class="v">${btn}</span></div>
       <div class="item"><span class="k">Plik logu</span><span class="v">${s.log_path || "—"}</span></div>
       <div class="item"><span class="k">Widoczność panelu</span><span class="v">${share}</span></div>
       <button class="open-settings" id="open-settings">Otwórz ustawienia integracji</button>
-      <div class="note">Obiekty, auto-zamykanie i udostępnianie panelu zmienisz w ustawieniach
-        integracji (menu: „Obiekty, log i auto-zamykanie” oraz „Udostępnianie panelu”).
-        Aby żona/domownik widzieli ten panel, w „Udostępnianiu” wyłącz „Tylko administratorzy”.</div>`;
+      <div class="note">Auto-zamykanie (osobno dla każdej bramy) i przycisk zamknięcia ustawisz
+        w menu „Auto-zamykanie i przycisk”. Udostępnianie panelu domownikom — w „Udostępnianiu”
+        wyłącz „Tylko administratorzy”.</div>`;
     this.$("open-settings").addEventListener("click", () => {
       history.pushState(null, "", "/config/integrations/integration/gate_access");
       this.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));

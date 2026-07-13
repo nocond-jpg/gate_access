@@ -6,7 +6,9 @@ DOMAIN = "gate_access"
 CONF_TARGETS = "targets"          # list of entity_ids (gate, wicket, ...)
 CONF_GATE_ENTITY = "gate_entity"  # legacy single-gate key (migrated on read)
 CONF_LOG_PATH = "log_path"
-CONF_CLOSE_AFTER = "close_after"
+CONF_CLOSE_AFTER = "close_after"        # legacy single value (migrated)
+CONF_CLOSE_MAP = "close_after_map"      # per-target auto-close seconds
+CONF_SHOW_CLOSE = "show_close"          # show a close button on the open page
 CONF_ADMIN_ONLY = "admin_only"    # panel visible only to admins (else all users)
 CONF_STATS = "stats"              # count opens per entity (day/month/year)
 CONF_LOG_CLOSINGS = "log_closings"  # also record closings
@@ -15,6 +17,7 @@ CONF_RATE_LIMIT = "rate_limit"    # max opens per link per minute (0 = off)
 
 DEFAULT_LOG_PATH = "/config/otwarcie_bramy.txt"
 DEFAULT_CLOSE_AFTER = 0
+DEFAULT_SHOW_CLOSE = False
 DEFAULT_ADMIN_ONLY = True
 DEFAULT_STATS = False
 DEFAULT_LOG_CLOSINGS = False

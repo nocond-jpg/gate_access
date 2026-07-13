@@ -26,7 +26,8 @@
         "menu_options": {
           "targets": "Openings, log and auto-close",
           "sharing": "Panel sharing",
-          "logging": "Records and statistics"
+          "logging": "Records and statistics",
+          "autoclose": "Auto-close and button"
         }
       },
       "targets": {
@@ -53,6 +54,13 @@
           "log_closings": "Also record closings",
           "delete_password": "Password to clear history (empty = no password)",
           "rate_limit": "Open limit per link (per minute, 0 = no limit)"
+        }
+      },
+      "autoclose": {
+        "title": "Auto-close",
+        "description": "Set auto-close time per opening (0 = no auto-close). Also applies to remote/automatic opens. Enable a close button on the open page.",
+        "data": {
+          "show_close": "Show a close button on the open page"
         }
       }
     },
