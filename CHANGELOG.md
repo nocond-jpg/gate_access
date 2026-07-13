@@ -4,6 +4,19 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.2.0] - 2026-07-08
+
+### Dodane
+- Otwarcia z **pilota/lokalne** (bez użytkownika HA) są zapisywane w historii jako
+  „Pilot" i **liczone w statystykach**.
+- **Auto-zamykanie osobno dla każdej bramy** (menu „Auto-zamykanie i przycisk"),
+  działające także przy otwarciu z pilota i automatu.
+- Opcjonalny **przycisk „Zamknij bramę"** na stronie po otwarciu linku.
+- **Odliczanie** do auto-zamknięcia na przycisku zamknięcia (gdy auto-zamykanie aktywne).
+
+### Zmienione
+- Auto-zamykanie planowane centralnie przy każdym otwarciu (spójne dla wszystkich źródeł).
+
 ## [1.1.0] - 2026-07-08
 
 ### Dodane
@@ -46,5 +59,6 @@ Pierwsze publiczne wydanie.
 - Eksport dostępów do CSV / JSON.
 - Menu ustawień w opcjach integracji.
 
+[1.2.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.2.0
 [1.1.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.1.0
 [1.0.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.0.0
