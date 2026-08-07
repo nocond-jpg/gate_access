@@ -4,6 +4,13 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.2.1] - 2026-07-08
+
+### Poprawione
+- Przycisk „Zamknij bramę" na stronie otwarcia nie wygasza się już na stałe —
+  po kliknięciu jest chwilowo blokowany (na czas żądania), po czym znów działa,
+  więc można ponowić zamknięcie. Odliczanie nie blokuje przycisku.
+
 ## [1.2.0] - 2026-07-08
 
 ### Dodane
@@ -59,6 +66,7 @@ Pierwsze publiczne wydanie.
 - Eksport dostępów do CSV / JSON.
 - Menu ustawień w opcjach integracji.
 
+[1.2.1]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.2.1
 [1.2.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.2.0
 [1.1.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.1.0
 [1.0.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.0.0
