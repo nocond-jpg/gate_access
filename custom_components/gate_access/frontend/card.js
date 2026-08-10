@@ -132,7 +132,12 @@ class GateAccessCard extends HTMLElement {
     this._flash("Tworzę…");
     try {
       const user = await this._hass.callApi("POST", "gate_access/users", payload);
-      const url = `${location.origin}/api/webhook/${user.webhook_id}`;
+      let base = location.origin;
+      try {
+        const se = await this._hass.callApi("GET", "gate_access/settings");
+        if (se && se.base_url) base = se.base_url;
+      } catch (e) {}
+      const url = `${base}/api/webhook/${user.webhook_id}`;
       this.$("link").textContent = url;
       this.$("result").classList.add("show");
       this._flash(`Gotowe: ${user.name}.`);

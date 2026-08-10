@@ -331,7 +331,7 @@ class GateAccessPanel extends HTMLElement {
       this.$("until").value = localInput(24 * 3600 * 1000);
   }
 
-  _url(u) { return `${location.origin}/api/webhook/${u.webhook_id}`; }
+  _url(u) { return `${this._baseUrl || location.origin}/api/webhook/${u.webhook_id}`; }
   _targetName(eid) {
     const t = (this._targets || []).find((x) => x.entity_id === eid);
     return t ? t.name : eid;
@@ -398,6 +398,7 @@ class GateAccessPanel extends HTMLElement {
       const se = await this._hass.callApi("GET", "gate_access/settings");
       this._settings = se || {};
     } catch (e) { this._settings = {}; }
+    this._baseUrl = (this._settings && this._settings.base_url) || location.origin;
 
     // history filters
     this._fillTargetSelect(this.$("h-target"), this._hFTarget, true);
@@ -913,6 +914,7 @@ class GateAccessPanel extends HTMLElement {
       <div class="item"><span class="k">Auto-zamykanie (per obiekt)</span>
         <span class="v"><span class="chips">${closeRows}</span></span></div>
       <div class="item"><span class="k">Przycisk zamknięcia na stronie</span><span class="v">${btn}</span></div>
+      <div class="item"><span class="k">Adres linków</span><span class="v">${s.base_url || "bieżący adres przeglądarki"}</span></div>
       <div class="item"><span class="k">Plik logu</span><span class="v">${s.log_path || "—"}</span></div>
       <div class="item"><span class="k">Widoczność panelu</span><span class="v">${share}</span></div>
       <button class="open-settings" id="open-settings">Otwórz ustawienia integracji</button>

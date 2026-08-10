@@ -35,6 +35,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ADMIN_ONLY,
+    CONF_BASE_URL,
     CONF_CLOSE_AFTER,
     CONF_CLOSE_MAP,
     CONF_DELETE_PASSWORD,
@@ -995,6 +996,7 @@ class GateSettingsView(HomeAssistantView):
                     for eid in _targets(entry)
                 ],
                 "show_close": bool(_cfg(entry, CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE)),
+                "base_url": (_cfg(entry, CONF_BASE_URL, "") or "").rstrip("/"),
                 "log_path": _cfg(entry, CONF_LOG_PATH, DEFAULT_LOG_PATH),
                 "admin_only": bool(_cfg(entry, CONF_ADMIN_ONLY, DEFAULT_ADMIN_ONLY)),
                 "stats": bool(_cfg(entry, CONF_STATS, False)),

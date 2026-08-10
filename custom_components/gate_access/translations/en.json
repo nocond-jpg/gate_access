@@ -8,7 +8,8 @@
         "data": {
           "targets": "Openings (gate, wicket, lock, relay…)",
           "log_path": "Log file path",
-          "close_after": "Close after (s, 0 = don't close)"
+          "close_after": "Close after (s, 0 = don't close)",
+          "base_url": "Base URL for links (e.g. https://ha.example.com; empty = current)"
         }
       }
     },
@@ -36,7 +37,8 @@
         "data": {
           "targets": "Openings (gate, wicket, lock, relay…)",
           "log_path": "Log file path",
-          "close_after": "Close after (s, 0 = don't close)"
+          "close_after": "Close after (s, 0 = don't close)",
+          "base_url": "Base URL for links (e.g. https://ha.example.com; empty = current)"
         }
       },
       "sharing": {

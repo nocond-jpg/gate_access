@@ -4,6 +4,13 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.3.0] - 2026-07-08
+
+### Dodane
+- Opcja **stałego adresu bazowego** dla linków webhook (menu „Obiekty i log").
+  Gdy HA działa pod kilkoma adresami, linki są zawsze budowane z wybranego adresu,
+  a nie z tego, na którym akurat otwarto panel. Puste = bieżący adres przeglądarki.
+
 ## [1.2.1] - 2026-07-08
 
 ### Poprawione
@@ -66,6 +73,7 @@ Pierwsze publiczne wydanie.
 - Eksport dostępów do CSV / JSON.
 - Menu ustawień w opcjach integracji.
 
+[1.3.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.3.0
 [1.2.1]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.2.1
 [1.2.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.2.0
 [1.1.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.1.0

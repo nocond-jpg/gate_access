@@ -8,7 +8,8 @@
         "data": {
           "targets": "Obiekty (brama, furtka, zamek, przekaźnik…)",
           "log_path": "Ścieżka pliku logu",
-          "close_after": "Zamknij po (s, 0 = nie zamykaj)"
+          "close_after": "Zamknij po (s, 0 = nie zamykaj)",
+          "base_url": "Adres bazowy do linków (np. https://ha.example.pl; puste = bieżący)"
         }
       }
     },
@@ -36,7 +37,8 @@
         "data": {
           "targets": "Obiekty (brama, furtka, zamek, przekaźnik…)",
           "log_path": "Ścieżka pliku logu",
-          "close_after": "Zamknij po (s, 0 = nie zamykaj)"
+          "close_after": "Zamknij po (s, 0 = nie zamykaj)",
+          "base_url": "Adres bazowy do linków (np. https://ha.example.pl; puste = bieżący)"
         }
       },
       "sharing": {

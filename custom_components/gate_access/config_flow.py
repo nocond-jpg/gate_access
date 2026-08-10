@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ADMIN_ONLY,
+    CONF_BASE_URL,
     CONF_CLOSE_AFTER,
     CONF_CLOSE_MAP,
     CONF_DELETE_PASSWORD,
@@ -25,6 +26,7 @@ from .const import (
     CONF_STATS,
     CONF_TARGETS,
     DEFAULT_ADMIN_ONLY,
+    DEFAULT_BASE_URL,
     DEFAULT_CLOSE_AFTER,
     DEFAULT_DELETE_PASSWORD,
     DEFAULT_LOG_CLOSINGS,
@@ -58,6 +60,11 @@ def _targets_schema(defaults: dict) -> vol.Schema:
             vol.Required(
                 CONF_LOG_PATH, default=defaults.get(CONF_LOG_PATH, DEFAULT_LOG_PATH)
             ): selector.TextSelector(),
+            vol.Optional(
+                CONF_BASE_URL, default=defaults.get(CONF_BASE_URL, DEFAULT_BASE_URL)
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type="url")
+            ),
         }
     )
 
@@ -145,6 +152,7 @@ class GateAccessOptionsFlow(OptionsFlow):
             CONF_TARGETS: cur.get(CONF_TARGETS)
             or ([cur[CONF_GATE_ENTITY]] if cur.get(CONF_GATE_ENTITY) else []),
             CONF_LOG_PATH: cur.get(CONF_LOG_PATH, DEFAULT_LOG_PATH),
+            CONF_BASE_URL: (cur.get(CONF_BASE_URL, DEFAULT_BASE_URL) or "").rstrip("/"),
             CONF_CLOSE_AFTER: int(cur.get(CONF_CLOSE_AFTER, DEFAULT_CLOSE_AFTER) or 0),
             CONF_CLOSE_MAP: cur.get(CONF_CLOSE_MAP, {}) or {},
             CONF_SHOW_CLOSE: cur.get(CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE),
@@ -157,6 +165,8 @@ class GateAccessOptionsFlow(OptionsFlow):
             ),
         }
         data.update(updates)
+        if data.get(CONF_BASE_URL):
+            data[CONF_BASE_URL] = str(data[CONF_BASE_URL]).rstrip("/")
         if data.get(CONF_CLOSE_AFTER) is not None:
             data[CONF_CLOSE_AFTER] = int(data[CONF_CLOSE_AFTER])
         if data.get(CONF_RATE_LIMIT) is not None:
