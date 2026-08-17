@@ -4,6 +4,12 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.6.0] - 2026-07-08
+
+### Dodane
+- **Favicon** na stronach otwarcia/potwierdzenia linku — ikona dobierana automatycznie:
+  brama garażowa dla obiektów `device_class: garage`, w innym wypadku zwykła brama.
+
 ## [1.5.0] - 2026-07-08
 
 ### Dodane
@@ -88,6 +94,7 @@ Pierwsze publiczne wydanie.
 - Eksport dostępów do CSV / JSON.
 - Menu ustawień w opcjach integracji.
 
+[1.6.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.6.0
 [1.5.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.5.0
 [1.4.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.4.0
 [1.3.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.3.0

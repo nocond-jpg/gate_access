@@ -10,6 +10,7 @@ create and manage links.
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
@@ -266,6 +267,42 @@ _GATE_SVG = (
     "0.5 0 0,1 20,7V8.5H14V6.5M4,10.5H10V12.5H4V10.5M14,10.5H20V12.5H14V10.5M4,14.5H10V16.5H4"
     "V14.5M14,14.5H20V16.5H14V14.5Z' /></svg>"
 )
+
+# Favicons (inline SVG data URIs) — a plain gate and a garage door.
+_GATE_ICON = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='#c8952f'>"
+    "<path d='M12,2A2,2 0 0,0 10,4V4.5H4.5A2.5,2.5 0 0,0 2,7V19H4V17H20V19H22V7A2.5,2.5 0 0,0 "
+    "19.5,4.5H14V4A2,2 0 0,0 12,2M4.5,6.5H10V8.5H4V7A0.5,0.5 0 0,1 4.5,6.5M14,6.5H19.5A0.5,"
+    "0.5 0 0,1 20,7V8.5H14V6.5M4,10.5H10V12.5H4V10.5M14,10.5H20V12.5H14V10.5M4,14.5H10V16.5H4"
+    "V14.5M14,14.5H20V16.5H14V14.5Z'/></svg>"
+)
+_GARAGE_ICON = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='#c8952f'>"
+    "<path d='M22,9V20H19V11H5V20H2V9L12,5L22,9M18,12H6V13.5H18V12M18,15H6V16.5H18V15M18,18H6"
+    "V19.5H18V18Z'/></svg>"
+)
+
+
+def _favicon_tag(svg: str) -> str:
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return (
+        "<link rel='icon' type='image/svg+xml' "
+        f"href='data:image/svg+xml;base64,{b64}'>"
+    )
+
+
+_FAVICON_GATE = _favicon_tag(_GATE_ICON)
+_FAVICON_GARAGE = _favicon_tag(_GARAGE_ICON)
+
+
+def _favicon(hass: HomeAssistant, target: str | None) -> str:
+    dclass = None
+    if target:
+        st = hass.states.get(target)
+        if st:
+            dclass = st.attributes.get("device_class")
+    return _FAVICON_GARAGE if dclass == "garage" else _FAVICON_GATE
+
 _PAGE_CSS = (
     "body{margin:0;height:100vh;display:grid;place-items:center;"
     "font-family:system-ui,sans-serif;background:#14171c;color:#e8e6df}"
@@ -280,12 +317,12 @@ _PAGE_CSS = (
 )
 
 
-def _confirm_page(show_close: bool, close_secs: int) -> str:
+def _confirm_page(show_close: bool, close_secs: int, favicon: str = "") -> str:
     """Landing page: visiting does NOT open; the gate opens only on tap (iOS-safe)."""
     return (
         "<!doctype html><html lang='pl'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>Brama</title><style>" + _PAGE_CSS + "</style></head><body>"
+        f"{favicon}<title>Brama</title><style>" + _PAGE_CSS + "</style></head><body>"
         "<div class='card'>" + _GATE_SVG +
         "<h1 id='ttl'>Brama</h1><p id='sub'>Naciśnij, aby otworzyć.</p>"
         "<button id='obtn' class='act' onclick='openGate()'>Otwórz bramę</button>"
@@ -319,7 +356,7 @@ def _confirm_page(show_close: bool, close_secs: int) -> str:
 
 
 def _open_html(
-    tname: str, sub: str, show_close: bool, close_secs: int
+    tname: str, sub: str, show_close: bool, close_secs: int, favicon: str = ""
 ) -> str:
     """Success page after opening, optionally with a close button + countdown."""
     icon = (
@@ -357,7 +394,7 @@ def _open_html(
     return (
         "<!doctype html><html lang='pl'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>Brama</title><style>"
+        f"{favicon}<title>Brama</title><style>"
         "body{margin:0;height:100vh;display:grid;place-items:center;"
         "font-family:system-ui,sans-serif;background:#14171c;color:#e8e6df}"
         ".card{text-align:center}h1{font-weight:600;font-size:1.4rem;margin:.6rem 0 .2rem}"
@@ -373,7 +410,7 @@ def _open_html(
     )
 
 
-def _html(name: str, sub: str, dim: bool = False) -> str:
+def _html(name: str, sub: str, dim: bool = False, favicon: str = "") -> str:
     style = "opacity:.5" if dim else ""
     icon = (
         "<svg viewBox='0 0 24 24' width='56' height='56' fill='#c8952f' style='" + style + "'>"
@@ -385,7 +422,7 @@ def _html(name: str, sub: str, dim: bool = False) -> str:
     return (
         "<!doctype html><html lang='pl'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>Brama</title><style>"
+        f"{favicon}<title>Brama</title><style>"
         "body{margin:0;height:100vh;display:grid;place-items:center;"
         "font-family:system-ui,sans-serif;background:#14171c;color:#e8e6df}"
         ".card{text-align:center}"
@@ -638,6 +675,7 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
         confirm = bool(_cfg(entry, CONF_CONFIRM_OPEN, DEFAULT_CONFIRM_OPEN))
         show_close = bool(_cfg(entry, CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE))
         close_secs = _close_secs(entry, target)
+        fav = _favicon(hass, target)
         do = request.query.get("do")
 
         # Close action from a page button (?do=close)
@@ -652,7 +690,8 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
         # iOS-safe mode: visiting the link only shows a page; open needs a tap.
         if confirm and do != "open":
             return web.Response(
-                text=_confirm_page(show_close, close_secs), content_type="text/html"
+                text=_confirm_page(show_close, close_secs, fav),
+                content_type="text/html",
             )
 
         if user and act != "active":
@@ -672,7 +711,7 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
             if confirm:
                 return web.json_response({"ok": False, "title": head, "msg": sub})
             return web.Response(
-                text=_html(head, sub, dim=True), content_type="text/html", status=403
+                text=_html(head, sub, True, fav), content_type="text/html", status=403
             )
 
         if user and not _rate_ok(hass, entry, webhook_id):
@@ -682,7 +721,7 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                     {"ok": False, "title": "Za dużo prób", "msg": "Spróbuj ponownie za chwilę."}
                 )
             return web.Response(
-                text=_html("Za dużo prób", "Spróbuj ponownie za chwilę.", dim=True),
+                text=_html("Za dużo prób", "Spróbuj ponownie za chwilę.", True, fav),
                 content_type="text/html",
                 status=429,
             )
@@ -695,7 +734,7 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
             return web.json_response({"ok": True, "name": tname})
         return web.Response(
             text=_open_html(
-                tname, f"{name} · {datetime.now():%H:%M}", show_close, close_secs
+                tname, f"{name} · {datetime.now():%H:%M}", show_close, close_secs, fav
             ),
             content_type="text/html",
         )
