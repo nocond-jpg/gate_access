@@ -47,6 +47,10 @@ header .sub{color:var(--muted);font-size:.82rem;margin-left:auto}
   display:inline-flex;align-items:center;gap:8px}
 .quick button:hover{background:var(--brass);color:#1a1206}
 .quick button:disabled{opacity:.5;cursor:default}
+.quick .qrow{display:flex;align-items:center;gap:8px;width:100%}
+.quick .qrow .qname{min-width:120px;font-size:.9rem;color:var(--ink)}
+.quick .qclose{border-color:var(--line);color:var(--muted)}
+.quick .qclose:hover{background:transparent;border-color:#7aa2c4;color:#7aa2c4}
 
 .msg{min-height:20px;font-size:.82rem;margin:8px 2px 18px}
 .msg.err{color:var(--danger)} .msg.ok{color:var(--brass-hi)}
@@ -436,25 +440,39 @@ class GateAccessPanel extends HTMLElement {
     const targets = this._targets || [];
     if (!targets.length) { quick.style.display = "none"; return; }
     const label = document.createElement("span");
-    label.className = "qlabel"; label.textContent = "Szybkie otwarcie";
+    label.className = "qlabel"; label.textContent = "Szybkie sterowanie";
     quick.appendChild(label);
+    const canClose = ["cover", "lock", "switch", "input_boolean", "light", "script"];
     for (const t of targets) {
-      const b = document.createElement("button");
-      b.textContent = t.name;
-      b.addEventListener("click", () => this._openNow(t, b));
-      quick.appendChild(b);
+      const row = document.createElement("div");
+      row.className = "qrow";
+      const nm = document.createElement("span");
+      nm.className = "qname"; nm.textContent = t.name;
+      const open = document.createElement("button");
+      open.textContent = "Otwórz";
+      open.addEventListener("click", () => this._quick("open", t, open));
+      row.append(nm, open);
+      if (canClose.includes((t.entity_id || "").split(".")[0])) {
+        const close = document.createElement("button");
+        close.className = "qclose"; close.textContent = "Zamknij";
+        close.addEventListener("click", () => this._quick("close", t, close));
+        row.appendChild(close);
+      }
+      quick.appendChild(row);
     }
     quick.style.display = "flex";
   }
 
-  async _openNow(target, btn) {
+  async _quick(action, target, btn) {
     btn.disabled = true;
-    this._flash(`Otwieram: ${target.name}…`);
+    const verb = action === "open" ? "Otwieram" : "Zamykam";
+    const done = action === "open" ? "Otwarto" : "Zamknięto";
+    this._flash(`${verb}: ${target.name}…`);
     try {
-      await this._hass.callApi("POST", "gate_access/open", { target: target.entity_id });
-      this._flash(`Otwarto: ${target.name}.`, "ok");
+      await this._hass.callApi("POST", `gate_access/${action}`, { target: target.entity_id });
+      this._flash(`${done}: ${target.name}.`, "ok");
     } catch (e) {
-      this._flash(e?.body?.message || "Nie udało się otworzyć.", "err");
+      this._flash(e?.body?.message || "Nie udało się wykonać akcji.", "err");
     } finally { btn.disabled = false; }
   }
 
@@ -908,12 +926,14 @@ class GateAccessPanel extends HTMLElement {
       : `<span class="k">—</span>`;
     const share = s.admin_only ? "tylko administratorzy" : "wszyscy użytkownicy";
     const btn = s.show_close ? "tak" : "nie";
+    const confirm = s.confirm_open ? "tak (dotknięcie „Otwórz”)" : "nie (otwiera od razu)";
     box.innerHTML = `
       <div class="item"><span class="k">Obiekty</span>
         <span class="v"><span class="chips">${chips}</span></span></div>
       <div class="item"><span class="k">Auto-zamykanie (per obiekt)</span>
         <span class="v"><span class="chips">${closeRows}</span></span></div>
       <div class="item"><span class="k">Przycisk zamknięcia na stronie</span><span class="v">${btn}</span></div>
+      <div class="item"><span class="k">Otwarcie przez dotknięcie (iPhone)</span><span class="v">${confirm}</span></div>
       <div class="item"><span class="k">Adres linków</span><span class="v">${s.base_url || "bieżący adres przeglądarki"}</span></div>
       <div class="item"><span class="k">Plik logu</span><span class="v">${s.log_path || "—"}</span></div>
       <div class="item"><span class="k">Widoczność panelu</span><span class="v">${share}</span></div>

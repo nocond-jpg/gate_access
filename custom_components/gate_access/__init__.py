@@ -38,6 +38,7 @@ from .const import (
     CONF_BASE_URL,
     CONF_CLOSE_AFTER,
     CONF_CLOSE_MAP,
+    CONF_CONFIRM_OPEN,
     CONF_DELETE_PASSWORD,
     CONF_GATE_ENTITY,
     CONF_LOG_CLOSINGS,
@@ -48,6 +49,7 @@ from .const import (
     CONF_TARGETS,
     DEFAULT_ADMIN_ONLY,
     DEFAULT_CLOSE_AFTER,
+    DEFAULT_CONFIRM_OPEN,
     DEFAULT_LOG_PATH,
     DEFAULT_RATE_LIMIT,
     DEFAULT_SHOW_CLOSE,
@@ -255,6 +257,65 @@ def _target_name(hass: HomeAssistant, entity_id: str | None) -> str:
     if state and state.attributes.get("friendly_name"):
         return state.attributes["friendly_name"]
     return entity_id
+
+
+_GATE_SVG = (
+    "<svg viewBox='0 0 24 24' width='56' height='56' fill='#c8952f'>"
+    "<path d='M12,2A2,2 0 0,0 10,4V4.5H4.5A2.5,2.5 0 0,0 2,7V19H4V17H20V19H22V7A2.5,2.5 0 0,0 "
+    "19.5,4.5H14V4A2,2 0 0,0 12,2M4.5,6.5H10V8.5H4V7A0.5,0.5 0 0,1 4.5,6.5M14,6.5H19.5A0.5,"
+    "0.5 0 0,1 20,7V8.5H14V6.5M4,10.5H10V12.5H4V10.5M14,10.5H20V12.5H14V10.5M4,14.5H10V16.5H4"
+    "V14.5M14,14.5H20V16.5H14V14.5Z' /></svg>"
+)
+_PAGE_CSS = (
+    "body{margin:0;height:100vh;display:grid;place-items:center;"
+    "font-family:system-ui,sans-serif;background:#14171c;color:#e8e6df}"
+    ".card{text-align:center}h1{font-weight:600;font-size:1.4rem;margin:.6rem 0 .2rem}"
+    "p{color:#8b9099;margin:0}"
+    "button.act{margin-top:22px;border:1px solid #c8952f;border-radius:12px;"
+    "padding:14px 22px;font-size:1.05rem;font-weight:600;cursor:pointer;min-width:230px;"
+    "background:#c8952f;color:#1a1206}"
+    "button.close{background:transparent;color:#e8b45a}"
+    "button.close:hover{background:#c8952f;color:#1a1206}"
+    "button.busy{opacity:.6;cursor:wait}"
+)
+
+
+def _confirm_page(show_close: bool, close_secs: int) -> str:
+    """Landing page: visiting does NOT open; the gate opens only on tap (iOS-safe)."""
+    return (
+        "<!doctype html><html lang='pl'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Brama</title><style>" + _PAGE_CSS + "</style></head><body>"
+        "<div class='card'>" + _GATE_SVG +
+        "<h1 id='ttl'>Brama</h1><p id='sub'>Naciśnij, aby otworzyć.</p>"
+        "<button id='obtn' class='act' onclick='openGate()'>Otwórz bramę</button>"
+        "<button id='cbtn' class='act close' style='display:none' onclick='closeGate()'>Zamknij bramę</button>"
+        "<script>"
+        f"var showClose={'true' if show_close else 'false'};var secs={close_secs};"
+        "var ob=document.getElementById('obtn');var cb=document.getElementById('cbtn');"
+        "var ttl=document.getElementById('ttl');var sub=document.getElementById('sub');"
+        "var busy=false;var t=null;"
+        "function fmt(s){var m=Math.floor(s/60);var x=s%60;return m+':' + (x<10?'0':'') + x;}"
+        "async function openGate(){ if(busy)return;busy=true;ob.classList.add('busy');ob.textContent='Otwieram…';"
+        "try{ var r=await fetch(window.location.pathname+'?do=open',{method:'POST'});"
+        "var j=await r.json();"
+        "if(j.ok){ ttl.textContent='Otwarto'+(j.name?': '+j.name:''); sub.textContent='';"
+        "ob.style.display='none'; if(showClose||secs>0){ cb.style.display=''; startC(); } }"
+        "else{ ttl.textContent=j.title||'Nie otwarto'; sub.textContent=j.msg||'';"
+        "ob.classList.remove('busy'); ob.textContent='Otwórz bramę'; } }"
+        "catch(e){ sub.textContent='Błąd połączenia.'; ob.classList.remove('busy'); ob.textContent='Otwórz bramę'; }"
+        "busy=false; }"
+        "function startC(){ if(secs<=0){cb.textContent='Zamknij bramę';return;} tickC(); t=setInterval(tickC,1000); }"
+        "function tickC(){ if(busy)return; if(secs>0){cb.textContent='Zamknij (auto za '+fmt(secs)+')';secs--;}"
+        "else{cb.textContent='Zamknij bramę'; if(t){clearInterval(t);t=null;}} }"
+        "async function closeGate(){ if(busy)return;busy=true; if(t){clearInterval(t);t=null;}"
+        "cb.classList.add('busy'); cb.textContent='Zamykam…';"
+        "try{ var r=await fetch(window.location.pathname+'?do=close',{method:'POST'});"
+        "cb.textContent = r.ok ? 'Zamknięto — kliknij, aby zamknąć ponownie' : 'Błąd — spróbuj ponownie'; }"
+        "catch(e){ cb.textContent='Błąd — spróbuj ponownie'; }"
+        "setTimeout(function(){busy=false;cb.classList.remove('busy');},1500); }"
+        "</script></div></body></html>"
+    )
 
 
 def _open_html(
@@ -543,9 +604,13 @@ async def _do_open(
 
 
 async def _do_close(
-    hass: HomeAssistant, entry: ConfigEntry, target: str | None, name: str
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    target: str | None,
+    name: str,
+    source: str = "link",
 ) -> str:
-    """Manual close via the open page's button (logged as source 'link')."""
+    """Close a target (open-page button or panel), logged with the given source."""
     domain = target.split(".")[0] if target else ""
     closer = CLOSE_ACTIONS.get(domain)
     if target and closer:
@@ -554,7 +619,7 @@ async def _do_close(
         await hass.services.async_call(
             closer[0], closer[1], {"entity_id": target}, blocking=False, context=ctx
         )
-    return await _record(hass, entry, name, target, "link", "closed")
+    return await _record(hass, entry, name, target, source, "closed")
 
 
 # ---------------------------------------------------------------------------
@@ -570,15 +635,25 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
         target = (user.get("target") if user else None) or _default_target(entry)
 
         act = _activity(user) if user else "active"
+        confirm = bool(_cfg(entry, CONF_CONFIRM_OPEN, DEFAULT_CONFIRM_OPEN))
+        show_close = bool(_cfg(entry, CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE))
+        close_secs = _close_secs(entry, target)
+        do = request.query.get("do")
 
-        # Close action from the open page's button (?do=close)
-        if request.query.get("do") == "close":
+        # Close action from a page button (?do=close)
+        if do == "close":
             if user is None:
                 return web.Response(text="", status=404)
             if not user.get("enabled", True):
                 return web.Response(text="off", status=403)
             await _do_close(hass, entry, target, name)
             return web.Response(text="ok", content_type="text/plain")
+
+        # iOS-safe mode: visiting the link only shows a page; open needs a tap.
+        if confirm and do != "open":
+            return web.Response(
+                text=_confirm_page(show_close, close_secs), content_type="text/html"
+            )
 
         if user and act != "active":
             if act == "disabled":
@@ -594,12 +669,18 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                 head, sub = "Link wygasł", "Ten dostęp nie jest już aktywny."
             _add_history(hass, entry, name, webhook_id, act, target, "link")
             await _save(hass, entry)
+            if confirm:
+                return web.json_response({"ok": False, "title": head, "msg": sub})
             return web.Response(
                 text=_html(head, sub, dim=True), content_type="text/html", status=403
             )
 
         if user and not _rate_ok(hass, entry, webhook_id):
             await _maybe_record_rate(hass, entry, name, webhook_id, target)
+            if confirm:
+                return web.json_response(
+                    {"ok": False, "title": "Za dużo prób", "msg": "Spróbuj ponownie za chwilę."}
+                )
             return web.Response(
                 text=_html("Za dużo prób", "Spróbuj ponownie za chwilę.", dim=True),
                 content_type="text/html",
@@ -610,8 +691,8 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
             user["uses_left"] = max(0, user["uses_left"] - 1)
 
         tname = await _do_open(hass, entry, target, name, webhook_id)
-        show_close = bool(_cfg(entry, CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE))
-        close_secs = _close_secs(entry, target)
+        if confirm:
+            return web.json_response({"ok": True, "name": tname})
         return web.Response(
             text=_open_html(
                 tname, f"{name} · {datetime.now():%H:%M}", show_close, close_secs
@@ -901,6 +982,34 @@ class GateOpenView(HomeAssistantView):
         return self.json({"opened": target, "name": tname})
 
 
+class GateCloseView(HomeAssistantView):
+    """Close a target directly from the panel (admin action)."""
+
+    url = "/api/gate_access/close"
+    name = "api:gate_access:close"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        entry = _entry_for(hass)
+        if entry is None:
+            return self.json_message("Integracja nieskonfigurowana", 400)
+        try:
+            body = await request.json()
+        except ValueError:
+            return self.json_message("Nieprawidłowe dane", 400)
+        try:
+            target = _resolve_target(entry, (body or {}).get("target"))
+        except ValueError as err:
+            return self.json_message(str(err), 400)
+        if target is None:
+            return self.json_message("Brak skonfigurowanego obiektu", 400)
+        user = request.get("hass_user")
+        name = (user.name if user and user.name else None) or "Panel"
+        tname = await _do_close(hass, entry, target, name, source="panel")
+        return self.json({"closed": target, "name": tname})
+
+
 class GateHistoryView(HomeAssistantView):
     url = "/api/gate_access/history"
     name = "api:gate_access:history"
@@ -996,6 +1105,7 @@ class GateSettingsView(HomeAssistantView):
                     for eid in _targets(entry)
                 ],
                 "show_close": bool(_cfg(entry, CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE)),
+                "confirm_open": bool(_cfg(entry, CONF_CONFIRM_OPEN, DEFAULT_CONFIRM_OPEN)),
                 "base_url": (_cfg(entry, CONF_BASE_URL, "") or "").rstrip("/"),
                 "log_path": _cfg(entry, CONF_LOG_PATH, DEFAULT_LOG_PATH),
                 "admin_only": bool(_cfg(entry, CONF_ADMIN_ONLY, DEFAULT_ADMIN_ONLY)),
@@ -1154,6 +1264,7 @@ async def _async_register_global(hass: HomeAssistant) -> None:
     hass.http.register_view(GateUserView())
     hass.http.register_view(GateTargetsView())
     hass.http.register_view(GateOpenView())
+    hass.http.register_view(GateCloseView())
     hass.http.register_view(GateHistoryView())
     hass.http.register_view(GateHistoryDeleteView())
     hass.http.register_view(GateStatsView())

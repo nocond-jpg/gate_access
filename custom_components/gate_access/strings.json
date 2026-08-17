@@ -62,7 +62,8 @@
         "title": "Auto-zamykanie",
         "description": "Ustaw czas auto-zamykania osobno dla każdego obiektu (0 = bez zamykania). Działa też przy otwarciu z pilota/automatu. Włącz przycisk zamknięcia na stronie otwarcia.",
         "data": {
-          "show_close": "Pokaż przycisk zamknięcia na stronie otwarcia"
+          "show_close": "Pokaż przycisk zamknięcia na stronie otwarcia",
+          "confirm_open": "Wymagaj dotknięcia „Otwórz” (bezpieczne dla iPhone — odświeżenie nie otwiera)"
         }
       }
     },

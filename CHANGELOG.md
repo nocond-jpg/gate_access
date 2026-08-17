@@ -4,6 +4,21 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.5.0] - 2026-07-08
+
+### Dodane
+- Tryb **„Wymagaj dotknięcia, aby otworzyć"** (menu „Auto-zamykanie i przycisk").
+  Wejście na link tylko pokazuje stronę z przyciskiem „Otwórz bramę"; brama otwiera
+  się dopiero po dotknięciu. Rozwiązuje otwieranie przez automatyczne odświeżanie
+  strony i podglądy linków na iPhone (Safari/Wiadomości/Mail).
+
+## [1.4.0] - 2026-07-08
+
+### Dodane
+- **Zamykanie z panelu** — w sekcji „Szybkie sterowanie" każda brama ma przyciski
+  „Otwórz" i „Zamknij" (zamykanie dla obiektów, które je wspierają). Zapis jako
+  źródło „panel", przypisane do zalogowanego użytkownika.
+
 ## [1.3.0] - 2026-07-08
 
 ### Dodane
@@ -73,6 +88,8 @@ Pierwsze publiczne wydanie.
 - Eksport dostępów do CSV / JSON.
 - Menu ustawień w opcjach integracji.
 
+[1.5.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.5.0
+[1.4.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.4.0
 [1.3.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.3.0
 [1.2.1]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.2.1
 [1.2.0]: https://github.com/nocond-jpg/gate-access/releases/tag/v1.2.0

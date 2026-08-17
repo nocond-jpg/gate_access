@@ -62,7 +62,8 @@
         "title": "Auto-close",
         "description": "Set auto-close time per opening (0 = no auto-close). Also applies to remote/automatic opens. Enable a close button on the open page.",
         "data": {
-          "show_close": "Show a close button on the open page"
+          "show_close": "Show a close button on the open page",
+          "confirm_open": "Require a tap to open (iPhone-safe — refresh won't open)"
         }
       }
     },

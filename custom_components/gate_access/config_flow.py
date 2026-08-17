@@ -17,6 +17,7 @@ from .const import (
     CONF_BASE_URL,
     CONF_CLOSE_AFTER,
     CONF_CLOSE_MAP,
+    CONF_CONFIRM_OPEN,
     CONF_DELETE_PASSWORD,
     CONF_GATE_ENTITY,
     CONF_LOG_CLOSINGS,
@@ -28,6 +29,7 @@ from .const import (
     DEFAULT_ADMIN_ONLY,
     DEFAULT_BASE_URL,
     DEFAULT_CLOSE_AFTER,
+    DEFAULT_CONFIRM_OPEN,
     DEFAULT_DELETE_PASSWORD,
     DEFAULT_LOG_CLOSINGS,
     DEFAULT_LOG_PATH,
@@ -156,6 +158,7 @@ class GateAccessOptionsFlow(OptionsFlow):
             CONF_CLOSE_AFTER: int(cur.get(CONF_CLOSE_AFTER, DEFAULT_CLOSE_AFTER) or 0),
             CONF_CLOSE_MAP: cur.get(CONF_CLOSE_MAP, {}) or {},
             CONF_SHOW_CLOSE: cur.get(CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE),
+            CONF_CONFIRM_OPEN: cur.get(CONF_CONFIRM_OPEN, DEFAULT_CONFIRM_OPEN),
             CONF_ADMIN_ONLY: cur.get(CONF_ADMIN_ONLY, DEFAULT_ADMIN_ONLY),
             CONF_STATS: cur.get(CONF_STATS, DEFAULT_STATS),
             CONF_LOG_CLOSINGS: cur.get(CONF_LOG_CLOSINGS, DEFAULT_LOG_CLOSINGS),
@@ -185,6 +188,12 @@ class GateAccessOptionsFlow(OptionsFlow):
                 CONF_SHOW_CLOSE, default=cur.get(CONF_SHOW_CLOSE, DEFAULT_SHOW_CLOSE)
             )
         ] = selector.BooleanSelector()
+        fields[
+            vol.Required(
+                CONF_CONFIRM_OPEN,
+                default=cur.get(CONF_CONFIRM_OPEN, DEFAULT_CONFIRM_OPEN),
+            )
+        ] = selector.BooleanSelector()
         return vol.Schema(fields)
 
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
@@ -207,6 +216,7 @@ class GateAccessOptionsFlow(OptionsFlow):
                 {
                     CONF_CLOSE_MAP: cmap,
                     CONF_SHOW_CLOSE: bool(user_input.get(CONF_SHOW_CLOSE, False)),
+                    CONF_CONFIRM_OPEN: bool(user_input.get(CONF_CONFIRM_OPEN, False)),
                 }
             )
         return self.async_show_form(
