@@ -4,6 +4,13 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.7.2] - 2026-11-02
+
+### Poprawione
+- Nieaktualny skrót aplikacji (po odebraniu dostępu do obiektu) pokazuje komunikat
+  „Ten skrót jest nieaktualny” zamiast pustego ekranu; nieaktualna ikona jednego
+  dotknięcia pokazuje „Ikona nieaktualna”. Serwer i tak odmawia otwarcia.
+
 ## [1.7.1] - 2026-11-02
 
 ### Dodane

@@ -311,7 +311,8 @@ def manifest(path: str, person: str, targets: list[dict], solo: dict | None = No
             "id": path,
             "start_url": f"{path}?app=1",
             "icons": _icons(path),
-            # Android: long-press the app icon → "Otwórz: …" (can be dragged to the home screen)
+            # Android: long-press the app icon → "Otwórz: …" (can be dragged to the home screen).
+            # Chrome re-reads this manifest on app launch and rebuilds the shortcut list when it changes.
             "shortcuts": [
                 {
                     "name": f"Otwórz: {t['name']}",
@@ -470,7 +471,14 @@ document.querySelectorAll('[data-pin]').forEach(b => b.addEventListener('click',
 
 // One-tap launch: only when started from a home-screen icon / app shortcut (never from a plain link)
 const launchTarget = standalone ? (SOLO || QUICK) : null;
-if (launchTarget && document.getElementById('c-' + launchTarget)) {
+if (QUICK && !document.getElementById('c-' + QUICK)) {
+  // stale app shortcut: access to this opening was removed
+  history.replaceState(null, '', P + '?app=1');
+  $('#list').insertAdjacentHTML('afterbegin', '<div class="hint" style="margin-bottom:12px;border-color:#c9524a">' +
+    'Ten skrót jest nieaktualny – nie masz już dostępu do tego obiektu. ' + (ios ? '' :
+    'Lista skrótów odświeży się sama po kolejnym uruchomieniu aplikacji (Android robi to zwykle raz na dobę). ' +
+    'Od razu: odinstaluj aplikację Brama i zainstaluj ponownie z linku.') + '</div>');
+} else if (launchTarget && document.getElementById('c-' + launchTarget)) {
   if (QUICK) history.replaceState(null, '', P + '?app=1');   // a reload must not open again
   act(launchTarget, 'open');
 } else if (SOLO && !standalone) {

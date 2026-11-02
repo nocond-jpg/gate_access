@@ -771,7 +771,11 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                 solo_t = next((t for t in tl if t["id"] == request.query["solo"]), None)
                 if solo_t is None:
                     return web.Response(
-                        text=_html("Brak dostępu", "Ten obiekt nie jest przypisany.", True, fav),
+                        text=_html(
+                            "Ikona nieaktualna",
+                            "Nie masz już dostępu do tego obiektu. Usuń tę ikonę z ekranu.",
+                            True, fav,
+                        ),
                         content_type="text/html", status=403,
                     )
             return web.Response(
