@@ -83,9 +83,19 @@ z zaznaczoną bramą i przyciskiem **Zamknij**.
 Obiekty typu `button`/`script` bez czujnika nie mają stanu, więc nie mają przypomnień.
 Zamykanie z aplikacji: `cover`, `lock`, `switch`, `input_boolean`, `light`.
 
+### Zatwierdzanie urządzeń (od 1.8)
+Aplikacja podpisuje każde otwarcie kluczem zapisanym w telefonie (nie da się go
+skopiować). Pierwsze uruchomienie wysyła prośbę o zatwierdzenie:
+**Konfiguruj → Urządzenia aplikacji (zatwierdzanie)** → np. `notify.mobile_app_samsung`
+— przyjdzie powiadomienie z przyciskami **Zatwierdź / Odrzuć**. Urządzenia każdej
+osoby widać w panelu (Dostępy → osoba → Aplikacja na telefon) z przyciskami
+Zatwierdź / Usuń. Na iPhonie każda ikona na ekranie ma własny klucz i wymaga
+jednorazowego zatwierdzenia.
+
 ### Siri / CarPlay (Skróty Apple)
 Skrót „Gate”: akcja **Pobierz zawartość URL**
-`https://<adres>/api/webhook/<id>?do=open&t=<entity_id>`, metoda **POST**.
+`https://<adres>/api/webhook/<id>?do=open`, metoda **POST** (pojedynczy link —
+otwiera obiekt przypisany do linku; bez podpisu).
 Odpowiedź JSON `{"ok": true}`. W aucie: „Hey Siri, Gate”.
 Automatyzacja **Przyjazd** → *Uruchom po potwierdzeniu* daje powiadomienie
 z pytaniem przy zbliżaniu się do bramy.

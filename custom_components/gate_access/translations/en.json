@@ -29,7 +29,8 @@
           "sharing": "Panel sharing",
           "logging": "Records and statistics",
           "autoclose": "Auto-close and button",
-          "reminders": "Opening state and reminders (app)"
+          "reminders": "Opening state and reminders (app)",
+          "devices": "App devices (approval)"
         }
       },
       "targets": {
@@ -71,10 +72,18 @@
         "title": "State and reminders",
         "description": "For each opening: a state entity (e.g. contact `binary_sensor`; empty = the opening's own state) and after how many minutes of being open a push reminder is sent to the person who opened it (0 = off). Repeats up to 3 times while open. binary_sensor: on = open.",
         "data": {}
+      },
+      "devices": {
+        "title": "Device approval",
+        "description": "The phone app signs every action with a key stored on the phone. A new device works only after you approve it. Enter the notify service of your phone with the Home Assistant app (e.g. notify.mobile_app_phone) to get a notification with Approve/Reject buttons. Single links keep working.",
+        "data": {
+          "approve_notify": "Notify service for approvals (notify.…)"
+        }
       }
     },
     "error": {
-      "no_targets": "Select at least one opening."
+      "no_targets": "Select at least one opening.",
+      "notify": "Must start with notify."
     }
   }
 }

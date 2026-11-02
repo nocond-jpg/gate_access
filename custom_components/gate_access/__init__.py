@@ -36,6 +36,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ADMIN_ONLY,
+    CONF_APPROVE_NOTIFY,
     CONF_BASE_URL,
     CONF_CLOSE_AFTER,
     CONF_CLOSE_MAP,
@@ -56,6 +57,7 @@ from .const import (
     DEFAULT_LOG_PATH,
     DEFAULT_RATE_LIMIT,
     DEFAULT_SHOW_CLOSE,
+    APPROVE_ACTION_PREFIX,
     DOMAIN,
     EVENT_OPENED,
     PANEL_ICON,
@@ -706,6 +708,72 @@ async def _do_close(
 # ---------------------------------------------------------------------------
 # Webhook handling
 # ---------------------------------------------------------------------------
+async def _notify_new_device(
+    hass: HomeAssistant, entry: ConfigEntry, user: dict, dev: dict
+) -> None:
+    """Ask the administrator to approve a new device (actionable notification)."""
+    from homeassistant.components import persistent_notification
+
+    title = "Brama – nowe urządzenie"
+    msg = f"{user['name']}: {dev['label']}. Zatwierdzić dostęp z tego urządzenia?"
+    persistent_notification.async_create(
+        hass,
+        msg + "\n\nZatwierdź w panelu „Brama – dostęp” → Dostępy → osoba → Aplikacja na telefon.",
+        title=title,
+        notification_id=f"gate_access_dev_{dev['id']}",
+    )
+    svc = (_cfg(entry, CONF_APPROVE_NOTIFY, "") or "").strip()
+    if not svc.startswith("notify.") or not hass.services.has_service("notify", svc[7:]):
+        if svc:
+            _LOGGER.warning("Gate Access: usługa %s nie istnieje", svc)
+        return
+    try:
+        await hass.services.async_call(
+            "notify",
+            svc[7:],
+            {
+                "title": title,
+                "message": msg,
+                "data": {
+                    "tag": f"gate-dev-{dev['id']}",
+                    "actions": [
+                        {"action": f"{APPROVE_ACTION_PREFIX}APPROVE_{dev['id']}", "title": "Zatwierdź"},
+                        {"action": f"{APPROVE_ACTION_PREFIX}REJECT_{dev['id']}", "title": "Odrzuć"},
+                    ],
+                },
+            },
+            blocking=False,
+        )
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Gate Access: nie wysłano powiadomienia %s: %s", svc, err)
+
+
+async def async_device_action(
+    hass: HomeAssistant, entry: ConfigEntry, dev_id: str, op: str
+) -> dict | None:
+    """approve | reject | remove a device; returns the owning user."""
+    from homeassistant.components import persistent_notification
+
+    data = hass.data[DOMAIN][entry.entry_id]
+    for user in data["users"]:
+        dev = gapp.find_device(user, dev_id)
+        if dev is None:
+            continue
+        if op == "approve":
+            dev["status"] = "approved"
+        else:
+            user["devices"] = [d for d in user["devices"] if d["id"] != dev_id]
+            user["push_subs"] = [s for s in user.get("push_subs", []) if s.get("dev") != dev_id]
+        persistent_notification.async_dismiss(hass, f"gate_access_dev_{dev_id}")
+        _add_history(
+            hass, entry, user["name"], user["webhook_id"],
+            "dev_approved" if op == "approve" else "dev_removed", None, "admin",
+        )
+        await _save(hass, entry)
+        return user
+    return None
+
+
 _ACT_MSG = {
     "disabled": "Ten dostęp został wyłączony.",
     "pending": "Dostęp jeszcze nieaktywny.",
@@ -785,13 +853,58 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                          "Referrer-Policy": "no-referrer"},
             )
 
-        if do in ("state", "subscribe", "unsubscribe"):
+        app_ops = ("register", "devstatus", "challenge", "state", "subscribe", "unsubscribe")
+        if do in app_ops:
             if user is None:
                 return web.json_response({"ok": False}, status=404)
             if act != "active":
                 return web.json_response(
                     {"ok": False, "msg": _ACT_MSG.get(act, "Brak dostępu")}, status=403
                 )
+            if request.method != "POST":
+                return web.json_response({"ok": False}, status=405)
+            try:
+                payload = await request.json()
+            except ValueError:
+                payload = None
+            if not isinstance(payload, dict):
+                return web.json_response({"ok": False}, status=400)
+
+            if do == "register":
+                if not _rate_ok(hass, entry, f"{webhook_id}|register"):
+                    return web.json_response(
+                        {"ok": False, "msg": "Za dużo prób – spróbuj za minutę"}, status=429
+                    )
+                dev, err = gapp.register_device(user, payload.get("pub"), payload.get("label"))
+                if dev is None:
+                    return web.json_response({"ok": False, "msg": err}, status=400)
+                await _save(hass, entry)
+                if dev["status"] == "pending" and not dev.get("notified"):
+                    dev["notified"] = True
+                    await _notify_new_device(hass, entry, user, dev)
+                    await _save(hass, entry)
+                return web.json_response({"ok": True, "dev": dev["id"], "status": dev["status"]})
+
+            dev = gapp.find_device(user, payload.get("dev"))
+            if do == "devstatus":
+                return web.json_response(
+                    {"ok": True, "status": dev["status"] if dev else "unknown"},
+                    headers={"Cache-Control": "no-store"},
+                )
+            if dev is None or dev["status"] != "approved":
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "status": dev["status"] if dev else "unknown",
+                        "msg": "Urządzenie nie jest zatwierdzone",
+                    },
+                    status=403,
+                )
+            if do == "challenge":
+                nonce = gapp.issue_nonce(data.setdefault("nonces", {}), dev["id"])
+                if nonce is None:
+                    return web.json_response({"ok": False, "msg": "Za dużo prób"}, status=429)
+                return web.json_response({"ok": True, "nonce": nonce})
             if do == "state":
                 return web.json_response(
                     {
@@ -803,34 +916,50 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                     },
                     headers={"Cache-Control": "no-store"},
                 )
-            if request.method != "POST":
-                return web.json_response({"ok": False}, status=405)
-            try:
-                payload = await request.json()
-            except ValueError:
-                payload = None
             if do == "subscribe":
                 subscription = gapp.valid_subscription(payload)
                 if subscription is None:
                     return web.json_response(
                         {"ok": False, "msg": "Nieprawidłowa subskrypcja"}, status=400
                     )
-                gapp.add_subscription(
-                    user, subscription, _ua_label(request.headers.get("User-Agent", ""))
-                )
+                gapp.add_subscription(user, subscription, dev["label"])
+                for sub_rec in user["push_subs"]:
+                    if sub_rec["endpoint"] == subscription["endpoint"]:
+                        sub_rec["dev"] = dev["id"]
             else:
-                endpoint = (payload or {}).get("endpoint", "")
+                endpoint = payload.get("endpoint", "")
                 gapp.remove_subscription(user, endpoint if isinstance(endpoint, str) else "")
             await _save(hass, entry)
             return web.json_response({"ok": True})
 
-        # A specific opening chosen in the app (?t=<entity_id>) → always JSON
+        # A specific opening chosen in the app (?t=<entity_id>) → JSON, signed device only.
+        # Plain single links (no ?t=) keep working exactly as before.
         req_t = request.query.get("t")
         want_json = req_t is not None
         if req_t is not None:
             if user is None or req_t not in _user_targets(entry, user):
                 return web.json_response(
                     {"ok": False, "msg": "Brak dostępu do tego obiektu"}, status=403
+                )
+            if act != "active":
+                return web.json_response(
+                    {"ok": False, "msg": _ACT_MSG.get(act, "Brak dostępu")}, status=403
+                )
+            if do not in ("open", "close") or request.method != "POST":
+                return web.json_response({"ok": False, "msg": "Nieprawidłowe żądanie"}, status=400)
+            try:
+                payload = await request.json()
+            except ValueError:
+                payload = None
+            dev, err = gapp.verify_action(
+                data.setdefault("nonces", {}), user, webhook_id, payload, do, req_t
+            )
+            if dev is None:
+                _LOGGER.warning("Gate Access: odrzucono niepodpisane/nieważne żądanie (%s)", name)
+                status = gapp.find_device(user, (payload or {}).get("dev")) if isinstance(payload, dict) else None
+                return web.json_response(
+                    {"ok": False, "msg": err, "status": status["status"] if status else "unknown"},
+                    status=403,
                 )
             target = req_t
 
@@ -1075,7 +1204,8 @@ def _entry_for(hass: HomeAssistant) -> ConfigEntry | None:
 
 
 def _user_public(user: dict) -> dict:
-    out = {k: v for k, v in user.items() if k != "push_subs"}
+    out = {k: v for k, v in user.items() if k not in ("push_subs", "devices")}
+    out["devices"] = [gapp.device_public(d) for d in user.get("devices", [])]
     out["push"] = [s.get("label", "urządzenie") for s in user.get("push_subs", [])]
     out["status"] = _status(user)
     return out
@@ -1153,6 +1283,12 @@ class GateUserView(HomeAssistantView):
             kwargs["app_targets"] = body["app_targets"]
         if body.get("clear_push"):
             kwargs["clear_push"] = True
+        dact = body.get("device_action")
+        if isinstance(dact, dict) and dact.get("op") in ("approve", "reject", "remove"):
+            owner = await async_device_action(hass, entry, str(dact.get("id")), dact["op"])
+            if owner is None or owner["webhook_id"] != webhook_id:
+                return self.json_message("Nie znaleziono urządzenia", 404)
+            return self.json(_user_public(owner))
         if body.get("set_ttl") or any(
             k in body for k in ("starts_at", "expires_at", "uses_total")
         ):
@@ -1359,6 +1495,7 @@ class GateSettingsView(HomeAssistantView):
                 "stats": bool(_cfg(entry, CONF_STATS, False)),
                 "log_closings": bool(_cfg(entry, CONF_LOG_CLOSINGS, False)),
                 "has_delete_password": bool(_cfg(entry, CONF_DELETE_PASSWORD, "")),
+                "approve_notify": _cfg(entry, CONF_APPROVE_NOTIFY, "") or "",
                 "entry_id": entry.entry_id,
             }
         )
@@ -1618,6 +1755,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "reminders": {},
     }
     hass.data[DOMAIN][entry.entry_id]["save"] = lambda: _save(hass, entry)
+
+    async def _on_notify_action(event) -> None:
+        action = str(event.data.get("action", ""))
+        if not action.startswith(APPROVE_ACTION_PREFIX):
+            return
+        rest = action[len(APPROVE_ACTION_PREFIX):]
+        op, _, dev_id = rest.partition("_")
+        if op in ("APPROVE", "REJECT") and dev_id:
+            await async_device_action(hass, entry, dev_id, op.lower())
+
+    entry.async_on_unload(
+        hass.bus.async_listen("mobile_app_notification_action", _on_notify_action)
+    )
     if not stored.get("vapid"):
         await _save(hass, entry)
 

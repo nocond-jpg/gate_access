@@ -294,7 +294,7 @@ class GateAccessPanel extends HTMLElement {
     this.$("hclear").addEventListener("click", () => this._deleteHistory(null));
     const hk = this.$("h-kind");
     for (const [v, t] of [["all", "Wszystkie"], ["opened", "Otwarcia"],
-        ["failed", "Nieudane próby"], ["closed", "Zamknięcia"]]) {
+        ["failed", "Nieudane próby"], ["closed", "Zamknięcia"], ["devices", "Urządzenia"]]) {
       const o = document.createElement("option");
       o.value = v; o.textContent = t; hk.appendChild(o);
     }
@@ -659,7 +659,7 @@ class GateAccessPanel extends HTMLElement {
   }
 
   _sourceLabel(s) {
-    const map = { link: "link", app: "aplikacja", panel: "panel", ha: "HA", pilot: "pilot", auto: "automat", "usługa": "usługa" };
+    const map = { link: "link", app: "aplikacja", admin: "administrator", panel: "panel", ha: "HA", pilot: "pilot", auto: "automat", "usługa": "usługa" };
     return map[s] || s || "—";
   }
 
@@ -668,12 +668,15 @@ class GateAccessPanel extends HTMLElement {
     if (s === "disabled") return ["wyłączony", "expired"];
     if (s === "pending") return ["nieaktywny", "closed"];
     if (s === "rate") return ["limit", "expired"];
+    if (s === "dev_approved") return ["urządzenie zatwierdzone", "opened"];
+    if (s === "dev_removed") return ["urządzenie usunięte", "expired"];
     if (s === "closed") return ["zamknięto", "closed"];
     return ["otwarto", "opened"];
   }
 
   _kindOf(status) {
     if (status === "closed") return "closed";
+    if (status === "dev_approved" || status === "dev_removed") return "devices";
     if (["expired", "disabled", "pending", "rate"].includes(status)) return "failed";
     return "opened";
   }
@@ -890,6 +893,33 @@ class GateAccessPanel extends HTMLElement {
       app.appendChild(r);
     }
 
+    const devs = u.devices || [];
+    const dl = document.createElement("div");
+    dl.className = "hint";
+    dl.textContent = devs.length
+      ? "Urządzenia (aplikacja podpisuje każde otwarcie kluczem z telefonu):"
+      : "Urządzenia: brak. Pierwsze uruchomienie aplikacji wyśle prośbę o zatwierdzenie.";
+    app.appendChild(dl);
+    for (const d of devs) {
+      const r = document.createElement("div"); r.className = "row";
+      const k = document.createElement("span"); k.className = "k";
+      const st = d.status === "approved" ? "✓ zatwierdzone" : "⏳ czeka na zatwierdzenie";
+      k.textContent = `${d.label} · ${st} · dodane ${this._fmtTs(d.created)}` +
+        (d.last_used ? ` · ostatnio ${this._fmtTs(d.last_used)}` : "");
+      r.appendChild(k);
+      if (d.status !== "approved") {
+        const ok = document.createElement("button");
+        ok.className = "save"; ok.textContent = "Zatwierdź";
+        ok.addEventListener("click", () => this._devAction(u, d, "approve"));
+        r.appendChild(ok);
+      }
+      const rm = document.createElement("button");
+      rm.className = "ghost danger"; rm.textContent = d.status === "approved" ? "Usuń" : "Odrzuć";
+      rm.addEventListener("click", () => this._devAction(u, d, d.status === "approved" ? "remove" : "reject"));
+      r.appendChild(rm);
+      app.appendChild(r);
+    }
+
     const push = u.push || [];
     const pr = document.createElement("div");
     pr.className = "row";
@@ -911,6 +941,16 @@ class GateAccessPanel extends HTMLElement {
     app.appendChild(pr);
     box.appendChild(app);
     return box;
+  }
+
+  async _devAction(u, d, op) {
+    if (op === "remove" && !confirm(`Usunąć urządzenie „${d.label}” (${u.name})? Przestanie otwierać bramę.`)) return;
+    try {
+      await this._hass.callApi("PATCH",
+        `gate_access/users/${encodeURIComponent(u.webhook_id)}`, { device_action: { id: d.id, op } });
+      this._flash(op === "approve" ? `Zatwierdzono: ${u.name} – ${d.label}.` : `Usunięto urządzenie: ${d.label}.`, "ok");
+      this._load();
+    } catch (e) { this._flash(e?.body?.message || "Nie udało się.", "err"); }
   }
 
   async _saveAppTargets(u, checks) {
@@ -1055,6 +1095,8 @@ class GateAccessPanel extends HTMLElement {
         <span class="v"><span class="chips">${closeRows}</span></span></div>
       <div class="item"><span class="k">Stan i przypomnienia (aplikacja)</span>
         <span class="v"><span class="chips">${remindRows}</span></span></div>
+      <div class="item"><span class="k">Zatwierdzanie urządzeń aplikacji</span>
+        <span class="v">${s.approve_notify ? "powiadomienie: " + s.approve_notify : "tylko w panelu (ustaw usługę w „Urządzenia aplikacji”)"}</span></div>
       <div class="item"><span class="k">Przycisk zamknięcia na stronie</span><span class="v">${btn}</span></div>
       <div class="item"><span class="k">Otwarcie przez dotknięcie (iPhone)</span><span class="v">${confirm}</span></div>
       <div class="item"><span class="k">Adres linków</span><span class="v">${s.base_url || "bieżący adres przeglądarki"}</span></div>

@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ADMIN_ONLY,
+    CONF_APPROVE_NOTIFY,
     CONF_BASE_URL,
     CONF_CLOSE_AFTER,
     CONF_CLOSE_MAP,
@@ -180,6 +181,7 @@ class GateAccessOptionsFlow(OptionsFlow):
             ),
             CONF_STATE_MAP: cur.get(CONF_STATE_MAP, {}) or {},
             CONF_REMIND_MAP: cur.get(CONF_REMIND_MAP, {}) or {},
+            CONF_APPROVE_NOTIFY: cur.get(CONF_APPROVE_NOTIFY, "") or "",
         }
         data.update(updates)
         if data.get(CONF_BASE_URL):
@@ -213,7 +215,7 @@ class GateAccessOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["targets", "autoclose", "reminders", "logging", "sharing"],
+            menu_options=["targets", "autoclose", "reminders", "devices", "logging", "sharing"],
         )
 
     async def async_step_autoclose(self, user_input=None) -> ConfigFlowResult:
@@ -272,6 +274,28 @@ class GateAccessOptionsFlow(OptionsFlow):
             return self._save({CONF_STATE_MAP: smap, CONF_REMIND_MAP: rmap})
         return self.async_show_form(
             step_id="reminders", data_schema=self._reminders_schema(cur, targets)
+        )
+
+    async def async_step_devices(self, user_input=None) -> ConfigFlowResult:
+        errors = {}
+        if user_input is not None:
+            svc = (user_input.get(CONF_APPROVE_NOTIFY) or "").strip()
+            if svc and not svc.startswith("notify."):
+                errors[CONF_APPROVE_NOTIFY] = "notify"
+            else:
+                return self._save({CONF_APPROVE_NOTIFY: svc})
+        cur = self._current()
+        return self.async_show_form(
+            step_id="devices",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_APPROVE_NOTIFY,
+                        description={"suggested_value": cur.get(CONF_APPROVE_NOTIFY, "")},
+                    ): selector.TextSelector(),
+                }
+            ),
+            errors=errors,
         )
 
     async def async_step_logging(self, user_input=None) -> ConfigFlowResult:

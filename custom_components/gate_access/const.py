@@ -18,6 +18,7 @@ CONF_DELETE_PASSWORD = "delete_password"  # optional gate for clearing history
 CONF_RATE_LIMIT = "rate_limit"    # max opens per link per minute (0 = off)
 CONF_STATE_MAP = "state_map"      # per-target state entity (contact sensor etc.)
 CONF_REMIND_MAP = "remind_map"    # per-target reminder minutes (0 = off)
+CONF_APPROVE_NOTIFY = "approve_notify"  # notify service for new-device approvals
 
 DEFAULT_LOG_PATH = "/config/otwarcie_bramy.txt"
 DEFAULT_CLOSE_AFTER = 0
@@ -40,6 +41,13 @@ PUSH_HOSTS = (                    # allowed push service hosts (blocks SSRF)
     "push.services.mozilla.com",
     "notify.windows.com",
 )
+# Device binding (1.8)
+DEVICES_MAX_PER_USER = 10
+DEVICES_PENDING_MAX = 3
+PENDING_TTL_DAYS = 7
+NONCE_TTL = 30
+APPROVE_ACTION_PREFIX = "GATE_ACCESS_"
+
 STATE_DOMAINS = ["binary_sensor", "cover", "lock", "switch", "input_boolean"]
 
 TARGET_DOMAINS = [

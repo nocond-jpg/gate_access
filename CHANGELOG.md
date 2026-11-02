@@ -4,6 +4,26 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.8.0] - 2026-11-02
+
+### Dodane
+- **Podpisywanie w aplikacji (powiązanie z urządzeniem).** Przy pierwszym uruchomieniu
+  aplikacja tworzy w telefonie klucz P-256 (WebCrypto, nieeksportowalny, IndexedDB)
+  i rejestruje klucz publiczny w HA. Każde otwarcie/zamknięcie z aplikacji jest
+  podpisane i oparte o jednorazowe wyzwanie (30 s) — link skopiowany na inny telefon
+  nie otworzy niczego z poziomu aplikacji.
+- **Zatwierdzanie nowych urządzeń przez administratora**: powiadomienie z przyciskami
+  Zatwierdź/Odrzuć na telefon z aplikacją Home Assistant (menu „Urządzenia aplikacji
+  (zatwierdzanie)”), powiadomienie trwałe w HA oraz lista urządzeń w panelu
+  (Zatwierdź / Odrzuć / Usuń).
+- Historia: zdarzenia „urządzenie zatwierdzone / usunięte”, filtr „Urządzenia”.
+
+### Zmienione
+- Akcje aplikacji (`?do=…&t=…`), stan bram i subskrypcje push wymagają zatwierdzonego
+  urządzenia. **Pojedyncze linki działają bez zmian** (strona otwarcia, `?do=open`,
+  `?do=close` bez `t`) — także dla Skrótów Apple / HTTP Shortcuts.
+- Usunięcie urządzenia usuwa też jego subskrypcje przypomnień.
+
 ## [1.7.2] - 2026-11-02
 
 ### Poprawione

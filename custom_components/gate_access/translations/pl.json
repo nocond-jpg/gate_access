@@ -29,7 +29,8 @@
           "sharing": "Udostępnianie panelu",
           "logging": "Rejestr i statystyki",
           "autoclose": "Auto-zamykanie i przycisk",
-          "reminders": "Stan bram i przypomnienia (aplikacja)"
+          "reminders": "Stan bram i przypomnienia (aplikacja)",
+          "devices": "Urządzenia aplikacji (zatwierdzanie)"
         }
       },
       "targets": {
@@ -71,10 +72,18 @@
         "title": "Stan i przypomnienia",
         "description": "Dla każdego obiektu: encja stanu (np. kontaktron `binary_sensor`; puste = stan samego obiektu) i po ilu minutach otwarcia wysłać przypomnienie push osobie, która otworzyła (0 = wyłączone). Przypomnienie powtarza się do 3 razy, dopóki obiekt jest otwarty. binary_sensor: włączony = otwarte.",
         "data": {}
+      },
+      "devices": {
+        "title": "Zatwierdzanie urządzeń",
+        "description": "Aplikacja na telefon podpisuje każde otwarcie kluczem zapisanym w telefonie. Nowe urządzenie działa dopiero po Twoim zatwierdzeniu. Podaj usługę powiadomień telefonu z aplikacją Home Assistant (np. notify.mobile_app_samsung) — dostaniesz powiadomienie z przyciskami Zatwierdź/Odrzuć. Pojedyncze linki działają bez zmian.",
+        "data": {
+          "approve_notify": "Usługa powiadomień do zatwierdzania (notify.…)"
+        }
       }
     },
     "error": {
-      "no_targets": "Wybierz co najmniej jeden obiekt."
+      "no_targets": "Wybierz co najmniej jeden obiekt.",
+      "notify": "Musi zaczynać się od notify."
     }
   }
 }

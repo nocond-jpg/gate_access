@@ -375,6 +375,9 @@ button:disabled{opacity:.55}
 .push{margin-top:22px;font-size:.9rem;color:#a9aeb6}
 .push button{width:100%;margin-top:8px;background:transparent;color:#e8b45a;padding:12px;font-size:.95rem}
 .hint{background:#1e2229;border:1px dashed #3a4049;border-radius:8px;padding:12px;margin-top:10px;line-height:1.45}
+.hint.err{border-color:#c9524a}.hint.wait{border-color:#c8952f}
+.hint button{display:block;width:100%;margin-top:10px;background:transparent;color:#e8b45a;padding:12px;font-size:.95rem}
+#dev .hint{margin:0 0 12px}
 .pin{display:block;width:100%;margin-top:10px;background:transparent;border:0;color:#8b9099;font-size:.82rem;
  font-weight:500;padding:6px;text-decoration:underline}
 body.solo .card{padding:22px}body.solo button.op{padding:34px 10px;font-size:1.4rem}
@@ -383,20 +386,90 @@ body.solo .card{padding:22px}body.solo button.op{padding:34px 10px;font-size:1.4
 
 _APP_JS = r"""
 const Q = new URLSearchParams(location.search);
-const P = location.pathname, VAPID = __VAPID__, FOCUS = Q.get('focus'), SOLO = Q.get('solo'), QUICK = Q.get('quick');
+const P = location.pathname, WID = P.split('/').pop(), VAPID = __VAPID__;
+const FOCUS = Q.get('focus'), SOLO = Q.get('solo'), QUICK = Q.get('quick');
 const $ = s => document.querySelector(s);
 const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-let busy = {};
+let busy = {}, DEV = null, STATUS = 'unknown';
 
 function label(v){ return v === true ? ['Otwarta','open'] : v === false ? ['Zamknięta','closed'] : ['—','']; }
-async function api(q, opt){ const r = await fetch(P + q, Object.assign({cache:'no-store'}, opt||{}));
-  let j = {}; try { j = await r.json(); } catch(e) {} j._status = r.status; return j; }
+async function api(q, opt){
+  opt = Object.assign({cache:'no-store'}, opt || {});
+  if (opt.json !== undefined) { opt.method = opt.method || 'POST'; opt.headers = {'Content-Type':'application/json'}; opt.body = JSON.stringify(opt.json); delete opt.json; }
+  const r = await fetch(P + q, opt); let j = {}; try { j = await r.json(); } catch(e) {} j._status = r.status; return j; }
+function b64(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+function b64ToBytes(s){ s = s.replace(/-/g,'+').replace(/_/g,'/'); s += '='.repeat((4 - s.length % 4) % 4);
+  const r = atob(s), o = new Uint8Array(r.length); for (let i=0;i<r.length;i++) o[i] = r.charCodeAt(i); return o; }
 
+// ---- device key: non-extractable P-256 key kept in IndexedDB ------------------
+function idb(){ return new Promise((res, rej) => { const r = indexedDB.open('gate-access', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('keys'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbGet(k){ const db = await idb(); return new Promise((res, rej) => {
+  const q = db.transaction('keys').objectStore('keys').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function idbPut(k, v){ const db = await idb(); return new Promise((res, rej) => {
+  const t = db.transaction('keys', 'readwrite'); t.objectStore('keys').put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
+function devLabel(){ const ua = navigator.userAgent;
+  const d = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'urządzenie';
+  const name = SOLO ? (document.title || '') : '';
+  return d + (standalone ? ' · aplikacja' : ' · przeglądarka') + (name ? ' · ' + name : ''); }
+
+async function loadDevice(){
+  let rec = await idbGet(P);
+  if (!rec) {
+    const kp = await crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, false, ['sign','verify']);
+    rec = {key: kp.privateKey, pub: b64(await crypto.subtle.exportKey('spki', kp.publicKey)), dev: null};
+    await idbPut(P, rec);
+  }
+  return rec;
+}
+async function register(rec){
+  const j = await api('?do=register', {json: {pub: rec.pub, label: devLabel()}});
+  if (j.ok) { rec.dev = j.dev; await idbPut(P, rec); }
+  return j;
+}
+async function checkDevice(){
+  if (!window.crypto || !crypto.subtle || !window.indexedDB) { banner('err', 'Ta przeglądarka nie obsługuje bezpiecznych kluczy.'); return; }
+  DEV = await loadDevice();
+  let j = DEV.dev ? await api('?do=devstatus', {json: {dev: DEV.dev}}) : {status: 'unknown'};
+  if (j.status === 'unknown') {
+    if (DEV.dev) { banner('err', 'To urządzenie zostało usunięte z listy dozwolonych.', true); setStatus('removed'); return; }
+    j = await register(DEV);
+    if (!j.ok) { banner('err', j.msg || 'Nie udało się zarejestrować urządzenia.'); return; }
+  }
+  setStatus(j.status);
+}
+function setStatus(st){
+  const was = STATUS; STATUS = st;
+  document.querySelectorAll('[data-act]').forEach(b => b.disabled = st !== 'approved');
+  if (st === 'approved') { banner(); if (was !== 'approved') onApproved(); }
+  else if (st === 'pending') { banner('wait', 'To urządzenie czeka na zatwierdzenie przez administratora. Strona odświeży się sama.'); setTimeout(pollStatus, 5000); }
+}
+async function pollStatus(){
+  if (STATUS !== 'pending' || !DEV || !DEV.dev) return;
+  const j = await api('?do=devstatus', {json: {dev: DEV.dev}}).catch(() => ({}));
+  if (j.status === 'unknown') { banner('err', 'Prośba o dostęp została odrzucona.', true); STATUS = 'removed'; return; }
+  setStatus(j.status || 'pending');
+}
+function banner(kind, text, retry){
+  const b = $('#dev'); if (!kind) { b.innerHTML = ''; return; }
+  b.innerHTML = '<div class="hint ' + kind + '">' + text + (retry ? '<button id="rereg">Poproś ponownie o dostęp</button>' : '') + '</div>';
+  if (retry) $('#rereg').onclick = async () => { const j = await register(DEV); if (j.ok) setStatus(j.status); else banner('err', j.msg || 'Nie udało się.', true); };
+}
+async function signed(action, target){
+  const c = await api('?do=challenge', {json: {dev: DEV.dev}});
+  if (!c.ok) return c;
+  const msg = ['v1', WID, DEV.dev, c.nonce, action, target].join('|');
+  const sig = await crypto.subtle.sign({name:'ECDSA', hash:'SHA-256'}, DEV.key, new TextEncoder().encode(msg));
+  return api('?do=' + action + '&t=' + encodeURIComponent(target), {json: {dev: DEV.dev, nonce: c.nonce, sig: b64(sig)}});
+}
+
+// ---- UI ---------------------------------------------------------------------
 async function refresh(){
+  if (STATUS !== 'approved') return;
   try {
-    const j = await api('?do=state');
-    if (!j.ok) { $('#list').innerHTML = '<div class="card">' + (j.msg || 'Brak dostępu') + '</div>'; return; }
+    const j = await api('?do=state', {json: {dev: DEV.dev}});
+    if (!j.ok) { if (j.status) setStatus(j.status); return; }
     for (const t of j.targets) {
       const card = document.getElementById('c-' + t.id); if (!card) continue;
       const [txt, cls] = label(t.open); const st = card.querySelector('.st');
@@ -405,23 +478,21 @@ async function refresh(){
   } catch (e) {}
 }
 
-async function act(id, action, btn){
-  if (busy[id]) return; busy[id] = true;
+async function act(id, action){
+  if (busy[id] || STATUS !== 'approved') return; busy[id] = true;
   const card = document.getElementById('c-' + id), msg = card.querySelector('.msg');
   card.querySelectorAll('button').forEach(b => b.disabled = true);
   msg.className = 'msg'; msg.textContent = action === 'open' ? 'Otwieram…' : 'Zamykam…';
   try {
-    const j = await api('?do=' + action + '&t=' + encodeURIComponent(id), {method:'POST'});
+    const j = await signed(action, id);
     if (j.ok) { msg.className = 'msg ok'; msg.textContent = action === 'open' ? 'Otwarto' : 'Zamknięto';
       if (navigator.vibrate) navigator.vibrate(40); }
-    else { msg.className = 'msg err'; msg.textContent = j.msg || j.title || 'Nie udało się'; }
+    else { msg.className = 'msg err'; msg.textContent = j.msg || j.title || 'Nie udało się';
+      if (j.status && j.status !== 'approved') setStatus(j.status); }
   } catch (e) { msg.className = 'msg err'; msg.textContent = 'Błąd połączenia'; }
-  setTimeout(() => { busy[id] = false; card.querySelectorAll('button').forEach(b => b.disabled = false); }, 1500);
+  setTimeout(() => { busy[id] = false; card.querySelectorAll('button').forEach(b => b.disabled = STATUS !== 'approved'); }, 1500);
   setTimeout(refresh, 800); setTimeout(refresh, 4000);
 }
-
-function b64ToBytes(s){ s = s.replace(/-/g,'+').replace(/_/g,'/'); s += '='.repeat((4 - s.length % 4) % 4);
-  const r = atob(s), o = new Uint8Array(r.length); for (let i=0;i<r.length;i++) o[i] = r.charCodeAt(i); return o; }
 
 async function pushUi(){
   const box = $('#push');
@@ -436,10 +507,8 @@ async function pushUi(){
   const sub = await reg.pushManager.getSubscription();
   if (sub && Notification.permission === 'granted') {
     box.innerHTML = 'Przypomnienia o otwartej bramie: <b>włączone</b><button id="poff">Wyłącz przypomnienia</button>';
-    $('#poff').onclick = async () => { await api('?do=unsubscribe', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({endpoint: sub.endpoint})}); await sub.unsubscribe(); pushUi(); };
-    // keep server copy fresh (e.g. after HA restore)
-    api('?do=subscribe', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(sub.toJSON())});
+    $('#poff').onclick = async () => { await api('?do=unsubscribe', {json: {dev: DEV.dev, endpoint: sub.endpoint}}); await sub.unsubscribe(); pushUi(); };
+    api('?do=subscribe', {json: Object.assign({dev: DEV.dev}, sub.toJSON())});
   } else {
     box.innerHTML = 'Przypomnienia o otwartej bramie: <b>wyłączone</b><button id="pon">Włącz przypomnienia</button>';
     $('#pon').onclick = async () => {
@@ -447,7 +516,7 @@ async function pushUi(){
         const perm = await Notification.requestPermission();
         if (perm !== 'granted') { box.insertAdjacentHTML('beforeend','<div class="hint">Brak zgody na powiadomienia (Ustawienia → Powiadomienia → Brama).</div>'); return; }
         const s = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID)});
-        const j = await api('?do=subscribe', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(s.toJSON())});
+        const j = await api('?do=subscribe', {json: Object.assign({dev: DEV.dev}, s.toJSON())});
         if (!j.ok) throw new Error(j.msg || 'odrzucono');
         pushUi();
       } catch (e) { box.insertAdjacentHTML('beforeend','<div class="hint">Nie udało się: ' + e.message + '</div>'); }
@@ -455,7 +524,7 @@ async function pushUi(){
   }
 }
 
-document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => act(b.dataset.id, b.dataset.act, b)));
+document.querySelectorAll('[data-act]').forEach(b => { b.disabled = true; b.addEventListener('click', () => act(b.dataset.id, b.dataset.act)); });
 
 // "Ikona na ekran": a separate home-screen icon that opens one opening with a single tap
 document.querySelectorAll('[data-pin]').forEach(b => b.addEventListener('click', async () => {
@@ -464,32 +533,35 @@ document.querySelectorAll('[data-pin]').forEach(b => b.addEventListener('click',
   let box = card.querySelector('.hint'); if (!box) { box = document.createElement('div'); box.className = 'hint'; card.appendChild(box); }
   try { await navigator.clipboard.writeText(url); } catch (e) {}
   box.innerHTML = ios
-    ? 'Skopiowano link. Otwórz <b>Safari</b>, wklej link, potem <b>Udostępnij → Do ekranu początkowego</b>. Dotknięcie tej ikony od razu otwiera <b>' + b.dataset.name + '</b>.'
+    ? 'Skopiowano link. Otwórz <b>Safari</b>, wklej link, potem <b>Udostępnij → Do ekranu początkowego</b>. Dotknięcie tej ikony od razu otwiera <b>' + b.dataset.name + '</b>. Ikona będzie wymagać jednorazowego zatwierdzenia.'
     : 'Skopiowano link. Otwórz go w <b>Chrome</b> → menu ⋮ → <b>Dodaj do ekranu głównego</b>. ' +
       'Szybciej: przytrzymaj ikonę Brama na ekranie i przeciągnij skrót „Otwórz: ' + b.dataset.name + '” na ekran.';
 }));
 
-// One-tap launch: only when started from a home-screen icon / app shortcut (never from a plain link)
 const launchTarget = standalone ? (SOLO || QUICK) : null;
 if (QUICK && !document.getElementById('c-' + QUICK)) {
-  // stale app shortcut: access to this opening was removed
   history.replaceState(null, '', P + '?app=1');
-  $('#list').insertAdjacentHTML('afterbegin', '<div class="hint" style="margin-bottom:12px;border-color:#c9524a">' +
+  $('#list').insertAdjacentHTML('afterbegin', '<div class="hint err" style="margin-bottom:12px">' +
     'Ten skrót jest nieaktualny – nie masz już dostępu do tego obiektu. ' + (ios ? '' :
     'Lista skrótów odświeży się sama po kolejnym uruchomieniu aplikacji (Android robi to zwykle raz na dobę). ' +
     'Od razu: odinstaluj aplikację Brama i zainstaluj ponownie z linku.') + '</div>');
-} else if (launchTarget && document.getElementById('c-' + launchTarget)) {
-  if (QUICK) history.replaceState(null, '', P + '?app=1');   // a reload must not open again
-  act(launchTarget, 'open');
 } else if (SOLO && !standalone) {
   $('#list').insertAdjacentHTML('afterbegin', '<div class="hint" style="margin-bottom:12px">' + (ios
     ? 'Dodaj tę stronę: <b>Udostępnij → Do ekranu początkowego</b>. Dotknięcie ikony od razu otworzy bramę.'
     : 'Dodaj tę stronę: menu ⋮ → <b>Dodaj do ekranu głównego</b>. Dotknięcie ikony od razu otworzy bramę.') + '</div>');
 }
+if (QUICK) history.replaceState(null, '', P + '?app=1');   // a reload must not open again
+
+function onApproved(){
+  refresh();
+  // One-tap launch: only when started from a home-screen icon / app shortcut (never from a plain link)
+  if (launchTarget && document.getElementById('c-' + launchTarget) && !window._launched) { window._launched = true; act(launchTarget, 'open'); }
+  if (!SOLO) pushUi().catch(() => {});
+}
 if (FOCUS) { const c = document.getElementById('c-' + FOCUS); if (c) { c.classList.add('focus'); c.scrollIntoView(); } }
-refresh(); setInterval(() => { if (!document.hidden) refresh(); }, 4000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
-if (!SOLO) pushUi().catch(() => {});
+setInterval(() => { if (!document.hidden) refresh(); }, 4000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { refresh(); pollStatus(); } });
+checkDevice().catch(e => banner('err', 'Błąd: ' + e.message));
 """
 
 
@@ -534,7 +606,128 @@ def app_page(
         f"<title>{title}</title><style>{_APP_CSS}</style></head>"
         f"<body class='{'solo' if solo else ''}'>"
         f"<h1>{title}</h1><div class='sub'>{html.escape(person)}</div>"
+        "<div id='dev'></div>"
         f"<div id='list'>{''.join(cards) or '<div class=card>Brak przypisanych obiektów.</div>'}</div>"
         "<div class='push' id='push'></div>"
         f"<script>{js}</script></body></html>"
     )
+
+
+# ---------------------------------------------------------------------------
+# Device binding (1.8): the app signs every action with a non-extractable
+# WebCrypto P-256 key; new devices must be approved by the administrator.
+# ---------------------------------------------------------------------------
+import secrets as _secrets
+import time as _time
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+
+from .const import DEVICES_MAX_PER_USER, DEVICES_PENDING_MAX, NONCE_TTL, PENDING_TTL_DAYS
+
+
+def _load_pub(b64: str):
+    raw = base64.b64decode(b64, validate=True)
+    if len(raw) > 200:
+        raise ValueError("key too long")
+    key = serialization.load_der_public_key(raw)
+    if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
+        raise ValueError("not P-256")
+    return key
+
+
+def device_public(dev: dict) -> dict:
+    return {k: dev.get(k) for k in ("id", "label", "status", "created", "last_used")}
+
+
+def find_device(user: dict, dev_id: Any) -> dict | None:
+    if not isinstance(dev_id, str):
+        return None
+    return next((d for d in user.get("devices", []) if d["id"] == dev_id), None)
+
+
+def _purge_pending(user: dict) -> None:
+    limit = _time.time() - PENDING_TTL_DAYS * 86400
+    user["devices"] = [
+        d for d in user.get("devices", [])
+        if d["status"] != "pending" or d.get("created_ts", 0) > limit
+    ]
+
+
+def register_device(user: dict, pub: Any, label: Any) -> tuple[dict | None, str]:
+    """Create (or return the existing) device record. Returns (device, error)."""
+    if not isinstance(pub, str):
+        return None, "Brak klucza urządzenia"
+    try:
+        _load_pub(pub)
+    except (ValueError, TypeError):
+        return None, "Nieprawidłowy klucz urządzenia"
+    _purge_pending(user)
+    devices = user.setdefault("devices", [])
+    existing = next((d for d in devices if d["pub"] == pub), None)
+    if existing:
+        return existing, ""
+    if sum(1 for d in devices if d["status"] == "pending") >= DEVICES_PENDING_MAX:
+        return None, "Za dużo oczekujących próśb o dostęp – poproś administratora"
+    if len(devices) >= DEVICES_MAX_PER_USER:
+        return None, "Osiągnięto limit urządzeń dla tej osoby"
+    now = _time.time()
+    dev = {
+        "id": _secrets.token_hex(8),
+        "pub": pub,
+        "label": (label if isinstance(label, str) else "urządzenie")[:60],
+        "status": "pending",
+        "created": datetime_iso(now),
+        "created_ts": now,
+        "last_used": None,
+    }
+    devices.append(dev)
+    return dev, ""
+
+
+def datetime_iso(ts: float) -> str:
+    from homeassistant.util import dt as dt_util
+
+    return dt_util.utc_from_timestamp(ts).isoformat(timespec="seconds")
+
+
+def issue_nonce(store: dict, dev_id: str) -> str | None:
+    now = _time.monotonic()
+    for k in [k for k, v in store.items() if v[1] < now]:
+        store.pop(k)
+    if sum(1 for v in store.values() if v[0] == dev_id) >= 5:
+        return None
+    nonce = _secrets.token_urlsafe(18)
+    store[nonce] = (dev_id, now + NONCE_TTL)
+    return nonce
+
+
+def verify_action(
+    store: dict, user: dict, webhook_id: str, body: Any, action: str, target: str
+) -> tuple[dict | None, str]:
+    """Check device approval, single-use nonce and ECDSA signature."""
+    if not isinstance(body, dict):
+        return None, "Wymagane zatwierdzone urządzenie"
+    dev = find_device(user, body.get("dev"))
+    if dev is None:
+        return None, "Wymagane zatwierdzone urządzenie"
+    if dev["status"] != "approved":
+        return None, "Urządzenie czeka na zatwierdzenie"
+    nonce, sig = body.get("nonce"), body.get("sig")
+    rec = store.pop(nonce, None) if isinstance(nonce, str) else None
+    if not rec or rec[0] != dev["id"] or rec[1] < _time.monotonic():
+        return None, "Żądanie wygasło – spróbuj ponownie"
+    if not isinstance(sig, str) or len(sig) > 200:
+        return None, "Nieprawidłowy podpis"
+    msg = "|".join(["v1", webhook_id, dev["id"], nonce, action, target]).encode()
+    try:
+        raw = base64.b64decode(sig, validate=True)
+        if len(raw) != 64:
+            raise ValueError
+        der = encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big"))
+        _load_pub(dev["pub"]).verify(der, msg, ec.ECDSA(hashes.SHA256()))
+    except (InvalidSignature, ValueError, TypeError):
+        return None, "Nieprawidłowy podpis"
+    dev["last_used"] = datetime_iso(_time.time())
+    return dev, ""
