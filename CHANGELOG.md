@@ -4,6 +4,35 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.7.0] - 2026-11-02
+
+### Dodane
+- **Aplikacja na telefon (PWA)** pod linkiem osoby: `…/api/webhook/<id>?app=1`.
+  Dodawana do ekranu początkowego iPhone/Android, bez App Store, bez konta HA
+  i bez aplikacji Home Assistant. Lista obiektów osoby ze stanem (otwarta/zamknięta),
+  przyciski **Otwórz** i **Zamknij**. Wejście na stronę niczego nie otwiera —
+  działa wyłącznie ręczne dotknięcie.
+- **Wiele obiektów w aplikacji** — w szczegółach dostępu sekcja „Aplikacja na telefon”
+  z wyborem obiektów (np. 3 bramy + furtka). Zwykły link działa jak dotąd (jeden obiekt).
+- **Przypomnienia push „nadal otwarta”** (Web Push, VAPID — bez konta Apple Developer)
+  wysyłane do osoby, która otworzyła, gdy obiekt jest otwarty dłużej niż N minut
+  (domyślnie 10, do 3 powtórzeń). Kasowane od razu, gdy czujnik pokaże zamknięcie.
+- Menu **„Stan bram i przypomnienia”**: czujnik stanu per obiekt (np. kontaktron
+  `binary_sensor`) i czas przypomnienia per obiekt.
+- Panel: przycisk **Aplikacja** (kopiuje link aplikacji), lista urządzeń z przypomnieniami,
+  **Wyślij test**, **Usuń urządzenia**; w Ustawieniach stan i przypomnienia każdego obiektu.
+- Źródło „aplikacja” w historii.
+
+### Bezpieczeństwo
+- Subskrypcje push przyjmowane tylko dla znanych usług (Apple/Google/Mozilla/Microsoft) —
+  link nie pozwala skierować żądań HA na dowolny adres.
+- Maks. 5 urządzeń na osobę; martwe subskrypcje usuwane automatycznie.
+- Aplikacja może sterować tylko obiektami przypisanymi osobie; wyłączenie/wygaśnięcie
+  dostępu blokuje także aplikację i przypomnienia.
+
+### Wymagania
+- Nowa zależność `pywebpush==1.14.1` (ta sama wersja co w integracji HTML5 w HA).
+
 ## [1.6.0] - 2026-07-08
 
 ### Dodane

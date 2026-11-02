@@ -23,7 +23,9 @@ from .const import (
     CONF_LOG_CLOSINGS,
     CONF_LOG_PATH,
     CONF_RATE_LIMIT,
+    CONF_REMIND_MAP,
     CONF_SHOW_CLOSE,
+    CONF_STATE_MAP,
     CONF_STATS,
     CONF_TARGETS,
     DEFAULT_ADMIN_ONLY,
@@ -34,9 +36,11 @@ from .const import (
     DEFAULT_LOG_CLOSINGS,
     DEFAULT_LOG_PATH,
     DEFAULT_RATE_LIMIT,
+    DEFAULT_REMIND_MIN,
     DEFAULT_SHOW_CLOSE,
     DEFAULT_STATS,
     DOMAIN,
+    STATE_DOMAINS,
     TARGET_DOMAINS,
 )
 
@@ -44,6 +48,14 @@ _CLOSE_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=0, max=3600, step=1, mode="box", unit_of_measurement="s"
     )
+)
+_REMIND_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0, max=240, step=1, mode="box", unit_of_measurement="min"
+    )
+)
+_STATE_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=STATE_DOMAINS)
 )
 _TARGETS_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=TARGET_DOMAINS, multiple=True)
@@ -166,6 +178,8 @@ class GateAccessOptionsFlow(OptionsFlow):
             CONF_DELETE_PASSWORD: cur.get(
                 CONF_DELETE_PASSWORD, DEFAULT_DELETE_PASSWORD
             ),
+            CONF_STATE_MAP: cur.get(CONF_STATE_MAP, {}) or {},
+            CONF_REMIND_MAP: cur.get(CONF_REMIND_MAP, {}) or {},
         }
         data.update(updates)
         if data.get(CONF_BASE_URL):
@@ -199,7 +213,7 @@ class GateAccessOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["targets", "autoclose", "logging", "sharing"],
+            menu_options=["targets", "autoclose", "reminders", "logging", "sharing"],
         )
 
     async def async_step_autoclose(self, user_input=None) -> ConfigFlowResult:
@@ -221,6 +235,43 @@ class GateAccessOptionsFlow(OptionsFlow):
             )
         return self.async_show_form(
             step_id="autoclose", data_schema=self._autoclose_schema(cur, targets)
+        )
+
+    def _reminders_schema(self, cur: dict, targets: list) -> vol.Schema:
+        smap = cur.get(CONF_STATE_MAP, {}) or {}
+        rmap = cur.get(CONF_REMIND_MAP, {}) or {}
+        fields: dict = {}
+        for eid in targets:
+            fields[
+                vol.Optional(
+                    f"state__{eid}",
+                    description={"suggested_value": smap.get(eid)},
+                )
+            ] = _STATE_SELECTOR
+            fields[
+                vol.Optional(
+                    f"remind__{eid}",
+                    default=int(rmap.get(eid, DEFAULT_REMIND_MIN) or 0),
+                )
+            ] = _REMIND_SELECTOR
+        return vol.Schema(fields)
+
+    async def async_step_reminders(self, user_input=None) -> ConfigFlowResult:
+        cur = self._current()
+        targets = _targets_of(cur)
+        if user_input is not None:
+            smap, rmap = {}, {}
+            for eid in targets:
+                state_eid = user_input.get(f"state__{eid}")
+                if state_eid:
+                    smap[eid] = state_eid
+                try:
+                    rmap[eid] = int(user_input.get(f"remind__{eid}") or 0)
+                except (TypeError, ValueError):
+                    rmap[eid] = 0
+            return self._save({CONF_STATE_MAP: smap, CONF_REMIND_MAP: rmap})
+        return self.async_show_form(
+            step_id="reminders", data_schema=self._reminders_schema(cur, targets)
         )
 
     async def async_step_logging(self, user_input=None) -> ConfigFlowResult:

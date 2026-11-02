@@ -134,6 +134,16 @@ header .sub{color:var(--muted);font-size:.82rem;margin-left:auto}
 .settings .open-settings{margin-top:20px;background:var(--brass);color:#1a1206;border:0;
   border-radius:10px;padding:11px 16px;font-weight:600;font-size:.9rem;cursor:pointer}
 .settings .note{color:var(--muted);font-size:.82rem;margin-top:14px;line-height:1.5}
+.appbox{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+.appbox .checks{display:flex;flex-wrap:wrap;gap:8px}
+.appbox label{display:inline-flex;align-items:center;gap:6px;font-size:.84rem;
+  border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
+.appbox label input{accent-color:var(--brass)}
+.appbox .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.appbox .row .k{color:var(--muted);font-size:.8rem}
+.appbox .save{background:var(--brass);color:#1a1206;border:0;border-radius:8px;
+  padding:8px 14px;font-weight:600;font-size:.8rem;cursor:pointer}
+.st-open{color:#ffcf7a}.st-closed{color:#8fd6a8}
 `;
 
 const MODES = [
@@ -336,6 +346,7 @@ class GateAccessPanel extends HTMLElement {
   }
 
   _url(u) { return `${this._baseUrl || location.origin}/api/webhook/${u.webhook_id}`; }
+  _appUrl(u) { return `${this._url(u)}?app=1`; }
   _targetName(eid) {
     const t = (this._targets || []).find((x) => x.entity_id === eid);
     return t ? t.name : eid;
@@ -648,7 +659,7 @@ class GateAccessPanel extends HTMLElement {
   }
 
   _sourceLabel(s) {
-    const map = { link: "link", panel: "panel", ha: "HA", pilot: "pilot", auto: "automat", "usługa": "usługa" };
+    const map = { link: "link", app: "aplikacja", panel: "panel", ha: "HA", pilot: "pilot", auto: "automat", "usługa": "usługa" };
     return map[s] || s || "—";
   }
 
@@ -800,6 +811,8 @@ class GateAccessPanel extends HTMLElement {
     body.appendChild(editor);
     applyVis();
 
+    body.appendChild(this._buildApp(u));
+
     const hl = document.createElement("div");
     hl.className = "section-label"; hl.textContent = "Historia otwarć";
     body.appendChild(hl);
@@ -832,6 +845,101 @@ class GateAccessPanel extends HTMLElement {
     }
     body.appendChild(hist);
     return body;
+  }
+
+  _buildApp(u) {
+    const box = document.createElement("div");
+    const lbl = document.createElement("div");
+    lbl.className = "section-label"; lbl.textContent = "Aplikacja na telefon";
+    box.appendChild(lbl);
+    const app = document.createElement("div");
+    app.className = "appbox";
+
+    const urlRow = document.createElement("div");
+    urlRow.className = "row";
+    const copy = document.createElement("button");
+    copy.className = "save"; copy.textContent = "Kopiuj link aplikacji";
+    copy.addEventListener("click", () => {
+      this._copy(this._appUrl(u)); this._flash(`Skopiowano link aplikacji: ${u.name}.`, "ok"); });
+    const hint = document.createElement("span");
+    hint.className = "k";
+    hint.textContent = "iPhone: otwórz w Safari → Udostępnij → Do ekranu początkowego → w aplikacji „Włącz przypomnienia”.";
+    urlRow.append(copy, hint);
+    app.appendChild(urlRow);
+
+    const targets = this._targets || [];
+    let checks = [];
+    if (targets.length > 1) {
+      const chosen = new Set((u.app_targets && u.app_targets.length) ? u.app_targets : [u.target]);
+      const k = document.createElement("div");
+      k.className = "hint"; k.textContent = "Obiekty widoczne w aplikacji:";
+      const wrap = document.createElement("div");
+      wrap.className = "checks";
+      for (const t of targets) {
+        const l = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.value = t.entity_id; cb.checked = chosen.has(t.entity_id);
+        l.append(cb, document.createTextNode(t.name));
+        wrap.appendChild(l); checks.push(cb);
+      }
+      const save = document.createElement("button");
+      save.className = "save"; save.textContent = "Zapisz obiekty";
+      save.addEventListener("click", () => this._saveAppTargets(u, checks));
+      app.append(k, wrap);
+      const r = document.createElement("div"); r.className = "row"; r.appendChild(save);
+      app.appendChild(r);
+    }
+
+    const push = u.push || [];
+    const pr = document.createElement("div");
+    pr.className = "row";
+    const pk = document.createElement("span");
+    pk.className = "k";
+    pk.textContent = push.length
+      ? `Przypomnienia włączone na: ${push.join(", ")}`
+      : "Przypomnienia: nie włączono na żadnym urządzeniu.";
+    pr.appendChild(pk);
+    if (push.length) {
+      const test = document.createElement("button");
+      test.className = "ghost"; test.textContent = "Wyślij test";
+      test.addEventListener("click", () => this._pushTest(u));
+      const clr = document.createElement("button");
+      clr.className = "ghost danger"; clr.textContent = "Usuń urządzenia";
+      clr.addEventListener("click", () => this._clearPush(u));
+      pr.append(test, clr);
+    }
+    app.appendChild(pr);
+    box.appendChild(app);
+    return box;
+  }
+
+  async _saveAppTargets(u, checks) {
+    const list = checks.filter((c) => c.checked).map((c) => c.value);
+    if (!list.length) { this._flash("Zaznacz co najmniej jeden obiekt.", "err"); return; }
+    try {
+      await this._hass.callApi("PATCH",
+        `gate_access/users/${encodeURIComponent(u.webhook_id)}`, { app_targets: list });
+      this._flash(`Zapisano obiekty aplikacji: ${u.name}.`, "ok");
+      this._load();
+    } catch (e) { this._flash(e?.body?.message || "Nie udało się zapisać.", "err"); }
+  }
+
+  async _pushTest(u) {
+    try {
+      const r = await this._hass.callApi("POST", "gate_access/push_test", { webhook_id: u.webhook_id });
+      this._flash(`Test wysłany: ${r.sent}/${r.devices} urządzeń.`, r.sent ? "ok" : "err");
+      this._load();
+    } catch (e) { this._flash(e?.body?.message || "Nie udało się wysłać.", "err"); }
+  }
+
+  async _clearPush(u) {
+    if (!confirm(`Usunąć urządzenia z przypomnieniami dla ${u.name}?`)) return;
+    try {
+      await this._hass.callApi("PATCH",
+        `gate_access/users/${encodeURIComponent(u.webhook_id)}`, { clear_push: true });
+      this._flash(`Usunięto urządzenia: ${u.name}.`, "ok");
+      this._load();
+    } catch (e) { this._flash("Nie udało się usunąć.", "err"); }
   }
 
   _renderList() {
@@ -872,6 +980,7 @@ class GateAccessPanel extends HTMLElement {
           </div>
           <div class="actions">
             <button class="copy">Kopiuj</button>
+            <button class="capp" title="Link do aplikacji na telefon">Aplikacja</button>
             <button class="open">Otwórz</button>
             <button class="toggle">${u.enabled === false ? "Włącz" : "Wyłącz"}</button>
             ${(act === "expired" || act === "disabled") ? '<button class="react">Reaktywuj</button>' : ""}
@@ -895,6 +1004,9 @@ class GateAccessPanel extends HTMLElement {
       a.querySelector(".copy").addEventListener("click", () => {
         this._copy(url); this._flash(`Skopiowano link: ${u.name}.`, "ok"); });
       a.querySelector(".open").addEventListener("click", () => window.open(url, "_blank"));
+      a.querySelector(".capp").addEventListener("click", () => {
+        this._copy(this._appUrl(u));
+        this._flash(`Skopiowano link aplikacji: ${u.name}. Wyślij SMS-em — otworzyć w Safari i dodać do ekranu początkowego.`, "ok"); });
       a.querySelector(".toggle").addEventListener("click", () => this._toggle(u));
       const react = a.querySelector(".react");
       if (react) react.addEventListener("click", () => this._reactivate(u));
@@ -924,6 +1036,15 @@ class GateAccessPanel extends HTMLElement {
       ? targets.map((t) =>
           `<span class="chip">${t.name}: ${t.close_after ? t.close_after + " s" : "—"}</span>`).join("")
       : `<span class="k">—</span>`;
+    const stTxt = (v) => v === true ? '<span class="st-open">otwarta</span>'
+      : v === false ? '<span class="st-closed">zamknięta</span>' : "stan nieznany";
+    const remindRows = targets.length
+      ? targets.map((t) =>
+          `<span class="chip">${t.name}: ${stTxt(t.state)} · ${
+            t.state === null ? "bez przypomnień (brak czujnika stanu)"
+            : (t.remind_min ? "przypomnienie po " + t.remind_min + " min" : "przypomnienia wył.")
+          }${t.state_entity !== t.entity_id ? " · " + t.state_entity : ""}</span>`).join("")
+      : `<span class="k">—</span>`;
     const share = s.admin_only ? "tylko administratorzy" : "wszyscy użytkownicy";
     const btn = s.show_close ? "tak" : "nie";
     const confirm = s.confirm_open ? "tak (dotknięcie „Otwórz”)" : "nie (otwiera od razu)";
@@ -932,6 +1053,8 @@ class GateAccessPanel extends HTMLElement {
         <span class="v"><span class="chips">${chips}</span></span></div>
       <div class="item"><span class="k">Auto-zamykanie (per obiekt)</span>
         <span class="v"><span class="chips">${closeRows}</span></span></div>
+      <div class="item"><span class="k">Stan i przypomnienia (aplikacja)</span>
+        <span class="v"><span class="chips">${remindRows}</span></span></div>
       <div class="item"><span class="k">Przycisk zamknięcia na stronie</span><span class="v">${btn}</span></div>
       <div class="item"><span class="k">Otwarcie przez dotknięcie (iPhone)</span><span class="v">${confirm}</span></div>
       <div class="item"><span class="k">Adres linków</span><span class="v">${s.base_url || "bieżący adres przeglądarki"}</span></div>
@@ -939,7 +1062,8 @@ class GateAccessPanel extends HTMLElement {
       <div class="item"><span class="k">Widoczność panelu</span><span class="v">${share}</span></div>
       <button class="open-settings" id="open-settings">Otwórz ustawienia integracji</button>
       <div class="note">Auto-zamykanie (osobno dla każdej bramy) i przycisk zamknięcia ustawisz
-        w menu „Auto-zamykanie i przycisk”. Udostępnianie panelu domownikom — w „Udostępnianiu”
+        w menu „Auto-zamykanie i przycisk”. Czujnik stanu (kontaktron) i czas przypomnienia —
+        w „Stan bram i przypomnienia”. Udostępnianie panelu domownikom — w „Udostępnianiu”
         wyłącz „Tylko administratorzy”.</div>`;
     this.$("open-settings").addEventListener("click", () => {
       history.pushState(null, "", "/config/integrations/integration/gate_access");

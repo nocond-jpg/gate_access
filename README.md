@@ -27,6 +27,8 @@ statistics and an admin panel._
 - **Karta Lovelace** do tworzenia linków oraz **usługa** `gate_access.log_open`
   do zapisu otwarć z automatyzacji (np. NFC na wideodomofonie).
 - **Udostępnianie panelu** wszystkim użytkownikom HA (opcja).
+- **Aplikacja na telefon (PWA)** z przyciskami Otwórz/Zamknij, stanem bram
+  i **przypomnieniem push**, gdy brama zostanie otwarta (od 1.7).
 
 ## Instalacja
 
@@ -49,6 +51,42 @@ Dalsze ustawienia w **Konfiguruj** (menu):
 - **Rejestr i statystyki** — statystyki, rejestr zamknięć, limit otwarć/min,
   hasło do kasowania historii
 - **Udostępnianie panelu** — widoczność dla wszystkich użytkowników HA
+
+
+## Aplikacja na telefon (od 1.7)
+
+Każda osoba może mieć Bramę jako ikonę na ekranie telefonu — bez App Store,
+konta Apple Developer, konta HA i aplikacji Home Assistant.
+
+1. Panel → **Dostępy** → przy osobie **Aplikacja** (kopiuje `…/api/webhook/<id>?app=1`).
+   Wyślij SMS-em/Signalem.
+2. iPhone: otwórz link w **Safari** → **Udostępnij** → **Do ekranu początkowego**.
+3. Otwórz Bramę z ikony → **Włącz przypomnienia** → zezwól (iOS 16.4+).
+
+W szczegółach dostępu („Aplikacja na telefon”) zaznacz obiekty, które osoba widzi
+(np. trzy bramy i furtka). Strona aplikacji niczego nie otwiera sama — tylko dotknięcie.
+
+### Stan i przypomnienia
+**Konfiguruj → Stan bram i przypomnienia**: dla każdego obiektu wskaż czujnik stanu
+(np. kontaktron `binary_sensor`, włączony = otwarta; puste = stan samego obiektu,
+np. `cover`) i po ilu minutach wysłać przypomnienie (0 = wyłączone).
+Przypomnienie dostaje **osoba, która otworzyła** — do 3 razy co N minut,
+dopóki czujnik pokazuje otwarcie. Dotknięcie powiadomienia otwiera aplikację
+z zaznaczoną bramą i przyciskiem **Zamknij**.
+Obiekty typu `button`/`script` bez czujnika nie mają stanu, więc nie mają przypomnień.
+Zamykanie z aplikacji: `cover`, `lock`, `switch`, `input_boolean`, `light`.
+
+### Siri / CarPlay (Skróty Apple)
+Skrót „Gate”: akcja **Pobierz zawartość URL**
+`https://<adres>/api/webhook/<id>?do=open&t=<entity_id>`, metoda **POST**.
+Odpowiedź JSON `{"ok": true}`. W aucie: „Hey Siri, Gate”.
+Automatyzacja **Przyjazd** → *Uruchom po potwierdzeniu* daje powiadomienie
+z pytaniem przy zbliżaniu się do bramy.
+
+### Bezpieczeństwo
+Link jest kluczem — kto go ma, otwiera (w ramach okna czasowego, limitu użyć
+i limitu prób). Wyłączenie lub usunięcie dostępu w panelu działa natychmiast,
+także dla aplikacji i przypomnień.
 
 ## Użycie
 

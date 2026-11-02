@@ -16,6 +16,8 @@ CONF_STATS = "stats"              # count opens per entity (day/month/year)
 CONF_LOG_CLOSINGS = "log_closings"  # also record closings
 CONF_DELETE_PASSWORD = "delete_password"  # optional gate for clearing history
 CONF_RATE_LIMIT = "rate_limit"    # max opens per link per minute (0 = off)
+CONF_STATE_MAP = "state_map"      # per-target state entity (contact sensor etc.)
+CONF_REMIND_MAP = "remind_map"    # per-target reminder minutes (0 = off)
 
 DEFAULT_LOG_PATH = "/config/otwarcie_bramy.txt"
 DEFAULT_CLOSE_AFTER = 0
@@ -27,6 +29,18 @@ DEFAULT_STATS = False
 DEFAULT_LOG_CLOSINGS = False
 DEFAULT_DELETE_PASSWORD = ""
 DEFAULT_RATE_LIMIT = 2
+DEFAULT_REMIND_MIN = 10
+
+# Mobile web app / Web Push
+REMIND_REPEATS = 3                # reminders per opening (every N minutes)
+PUSH_MAX_PER_USER = 5             # devices per person
+PUSH_HOSTS = (                    # allowed push service hosts (blocks SSRF)
+    "push.apple.com",
+    "fcm.googleapis.com",
+    "push.services.mozilla.com",
+    "notify.windows.com",
+)
+STATE_DOMAINS = ["binary_sensor", "cover", "lock", "switch", "input_boolean"]
 
 TARGET_DOMAINS = [
     "cover",

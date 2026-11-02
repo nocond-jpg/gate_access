@@ -45,7 +45,9 @@ from .const import (
     CONF_LOG_CLOSINGS,
     CONF_LOG_PATH,
     CONF_RATE_LIMIT,
+    CONF_REMIND_MAP,
     CONF_SHOW_CLOSE,
+    CONF_STATE_MAP,
     CONF_STATS,
     CONF_TARGETS,
     DEFAULT_ADMIN_ONLY,
@@ -63,6 +65,7 @@ from .const import (
     STORAGE_KEY,
     STORAGE_VERSION,
 )
+from . import app as gapp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,6 +111,31 @@ def _targets(entry: ConfigEntry) -> list[str]:
 def _default_target(entry: ConfigEntry) -> str | None:
     targets = _targets(entry)
     return targets[0] if targets else None
+
+
+def _user_targets(entry: ConfigEntry, user: dict | None) -> list[str]:
+    """Openings a person can use in the app: app_targets, else the link's target."""
+    configured = _targets(entry)
+    if user:
+        chosen = [t for t in (user.get("app_targets") or []) if t in configured]
+        if chosen:
+            return chosen
+        if user.get("target") in configured:
+            return [user["target"]]
+    return configured[:1]
+
+
+def _app_path(webhook_id: str) -> str:
+    return f"/api/webhook/{webhook_id}"
+
+
+def _ua_label(ua: str) -> str:
+    ua = ua or ""
+    for key, label in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
+                       ("Macintosh", "Mac"), ("Windows", "Windows")):
+        if key in ua:
+            return label
+    return "urządzenie"
 
 
 def _asset_url(name: str) -> str:
@@ -662,6 +690,13 @@ async def _do_close(
 # ---------------------------------------------------------------------------
 # Webhook handling
 # ---------------------------------------------------------------------------
+_ACT_MSG = {
+    "disabled": "Ten dostęp został wyłączony.",
+    "pending": "Dostęp jeszcze nieaktywny.",
+    "expired": "Ten dostęp nie jest już aktywny.",
+}
+
+
 def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
     async def _handler(hass_: HomeAssistant, webhook_id: str, request: web.Request):
         data = hass.data[DOMAIN][entry.entry_id]
@@ -677,15 +712,127 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
         close_secs = _close_secs(entry, target)
         fav = _favicon(hass, target)
         do = request.query.get("do")
+        path = _app_path(webhook_id)
+
+        # ---- mobile web app (v1.7) -------------------------------------
+        asset = request.query.get("asset")
+        if asset:
+            if user is None:
+                return web.Response(status=404)
+            if asset == "manifest":
+                return web.Response(
+                    text=gapp.manifest(path, name),
+                    content_type="application/manifest+json",
+                    headers={"Cache-Control": "no-cache"},
+                )
+            if asset == "sw":
+                return web.Response(
+                    text=gapp.SERVICE_WORKER,
+                    content_type="application/javascript",
+                    headers={"Cache-Control": "no-cache"},
+                )
+            body = await hass.async_add_executor_job(gapp.read_icon, asset)
+            if body is None:
+                return web.Response(status=404)
+            return web.Response(
+                body=body, content_type="image/png",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+
+        if request.query.get("app"):
+            if user is None:
+                return web.Response(status=404)
+            if act != "active":
+                return web.Response(
+                    text=_html("Brak dostępu", _ACT_MSG.get(act, ""), True, fav),
+                    content_type="text/html", status=403,
+                )
+            tl = [
+                {
+                    "id": t,
+                    "name": _target_name(hass, t),
+                    "can_close": t.split(".")[0] in CLOSE_ACTIONS,
+                }
+                for t in _user_targets(entry, user)
+            ]
+            return web.Response(
+                text=gapp.app_page(path, name, tl, data["vapid"]["public"]),
+                content_type="text/html",
+                headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY",
+                         "Referrer-Policy": "no-referrer"},
+            )
+
+        if do in ("state", "subscribe", "unsubscribe"):
+            if user is None:
+                return web.json_response({"ok": False}, status=404)
+            if act != "active":
+                return web.json_response(
+                    {"ok": False, "msg": _ACT_MSG.get(act, "Brak dostępu")}, status=403
+                )
+            if do == "state":
+                return web.json_response(
+                    {
+                        "ok": True,
+                        "targets": [
+                            {"id": t, "open": gapp.is_open(hass, entry, t)}
+                            for t in _user_targets(entry, user)
+                        ],
+                    },
+                    headers={"Cache-Control": "no-store"},
+                )
+            if request.method != "POST":
+                return web.json_response({"ok": False}, status=405)
+            try:
+                payload = await request.json()
+            except ValueError:
+                payload = None
+            if do == "subscribe":
+                subscription = gapp.valid_subscription(payload)
+                if subscription is None:
+                    return web.json_response(
+                        {"ok": False, "msg": "Nieprawidłowa subskrypcja"}, status=400
+                    )
+                gapp.add_subscription(
+                    user, subscription, _ua_label(request.headers.get("User-Agent", ""))
+                )
+            else:
+                endpoint = (payload or {}).get("endpoint", "")
+                gapp.remove_subscription(user, endpoint if isinstance(endpoint, str) else "")
+            await _save(hass, entry)
+            return web.json_response({"ok": True})
+
+        # A specific opening chosen in the app (?t=<entity_id>) → always JSON
+        req_t = request.query.get("t")
+        want_json = req_t is not None
+        if req_t is not None:
+            if user is None or req_t not in _user_targets(entry, user):
+                return web.json_response(
+                    {"ok": False, "msg": "Brak dostępu do tego obiektu"}, status=403
+                )
+            target = req_t
 
         # Close action from a page button (?do=close)
         if do == "close":
             if user is None:
                 return web.Response(text="", status=404)
+            if want_json and act != "active":
+                return web.json_response(
+                    {"ok": False, "msg": _ACT_MSG.get(act, "Brak dostępu")}, status=403
+                )
             if not user.get("enabled", True):
                 return web.Response(text="off", status=403)
+            if want_json and target.split(".")[0] not in CLOSE_ACTIONS:
+                return web.json_response(
+                    {"ok": False, "msg": "Tego obiektu nie można zamknąć"}, status=400
+                )
             await _do_close(hass, entry, target, name)
+            gapp.cancel_reminder(hass, entry, target)
+            if want_json:
+                return web.json_response({"ok": True})
             return web.Response(text="ok", content_type="text/plain")
+
+        if want_json and do != "open":
+            return web.json_response({"ok": False, "msg": "Użyj ?do=open"}, status=400)
 
         # iOS-safe mode: visiting the link only shows a page; open needs a tap.
         if confirm and do != "open":
@@ -695,6 +842,12 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
             )
 
         if user and act != "active":
+            if want_json:
+                _add_history(hass, entry, name, webhook_id, act, target, "app")
+                await _save(hass, entry)
+                return web.json_response(
+                    {"ok": False, "msg": _ACT_MSG.get(act, "Brak dostępu")}, status=403
+                )
             if act == "disabled":
                 head, sub = "Dostęp wyłączony", "Ten dostęp został wyłączony."
             elif act == "pending":
@@ -714,9 +867,11 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                 text=_html(head, sub, True, fav), content_type="text/html", status=403
             )
 
-        if user and not _rate_ok(hass, entry, webhook_id):
+        # app: limit per opening, so gate + wicket in a row are not blocked
+        rate_key = f"{webhook_id}|{target}" if want_json else webhook_id
+        if user and not _rate_ok(hass, entry, rate_key):
             await _maybe_record_rate(hass, entry, name, webhook_id, target)
-            if confirm:
+            if confirm or want_json:
                 return web.json_response(
                     {"ok": False, "title": "Za dużo prób", "msg": "Spróbuj ponownie za chwilę."}
                 )
@@ -729,8 +884,14 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
         if user and user.get("uses_left") is not None:
             user["uses_left"] = max(0, user["uses_left"] - 1)
 
-        tname = await _do_open(hass, entry, target, name, webhook_id)
-        if confirm:
+        tname = await _do_open(
+            hass, entry, target, name, webhook_id, source="app" if want_json else "link"
+        )
+        if user:
+            gapp.schedule_reminder(
+                hass, entry, target, webhook_id, f"{path}?app=1", tname
+            )
+        if confirm or want_json:
             return web.json_response({"ok": True, "name": tname})
         return web.Response(
             text=_open_html(
@@ -769,7 +930,12 @@ def _unregister_webhook(hass: HomeAssistant, webhook_id: str) -> None:
 async def _save(hass: HomeAssistant, entry: ConfigEntry) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
     await data["store"].async_save(
-        {"users": data["users"], "history": data["history"], "stats": data["stats"]}
+        {
+            "users": data["users"],
+            "history": data["history"],
+            "stats": data["stats"],
+            "vapid": data.get("vapid"),
+        }
     )
 
 
@@ -825,6 +991,8 @@ async def async_update_user(
     enabled=_UNSET,
     target=_UNSET,
     ttl=_UNSET,
+    app_targets=_UNSET,
+    clear_push=False,
 ) -> dict:
     """Partial update: only the aspects provided are changed."""
     users = hass.data[DOMAIN][entry.entry_id]["users"]
@@ -835,6 +1003,12 @@ async def async_update_user(
         user["enabled"] = bool(enabled)
     if target is not _UNSET:
         user["target"] = _resolve_target(entry, target)
+    if app_targets is not _UNSET:
+        if not isinstance(app_targets, list):
+            raise ValueError("app_targets musi być listą")
+        user["app_targets"] = [_resolve_target(entry, t) for t in app_targets if t]
+    if clear_push:
+        user["push_subs"] = []
     if ttl is not _UNSET:
         starts_at, expires_at, uses_total = ttl
         user["starts_at"] = starts_at
@@ -878,7 +1052,10 @@ def _entry_for(hass: HomeAssistant) -> ConfigEntry | None:
 
 
 def _user_public(user: dict) -> dict:
-    return {**user, "status": _status(user)}
+    out = {k: v for k, v in user.items() if k != "push_subs"}
+    out["push"] = [s.get("label", "urządzenie") for s in user.get("push_subs", [])]
+    out["status"] = _status(user)
+    return out
 
 
 class GateUsersView(HomeAssistantView):
@@ -949,6 +1126,10 @@ class GateUserView(HomeAssistantView):
             kwargs["enabled"] = bool(body["enabled"])
         if "target" in body:
             kwargs["target"] = body["target"]
+        if "app_targets" in body:
+            kwargs["app_targets"] = body["app_targets"]
+        if body.get("clear_push"):
+            kwargs["clear_push"] = True
         if body.get("set_ttl") or any(
             k in body for k in ("starts_at", "expires_at", "uses_total")
         ):
@@ -1140,6 +1321,10 @@ class GateSettingsView(HomeAssistantView):
                         "entity_id": eid,
                         "name": _target_name(hass, eid),
                         "close_after": _close_secs(entry, eid),
+                        "state_entity": gapp.state_entity(entry, eid),
+                        "state": gapp.is_open(hass, entry, eid),
+                        "remind_min": gapp.remind_minutes(hass, entry, eid),
+                        "can_close": eid.split(".")[0] in CLOSE_ACTIONS,
                     }
                     for eid in _targets(entry)
                 ],
@@ -1168,6 +1353,37 @@ class GatePurgeView(HomeAssistantView):
             return self.json_message("Integracja nieskonfigurowana", 400)
         count = await async_purge_expired(hass, entry)
         return self.json({"purged": count})
+
+
+class GatePushTestView(HomeAssistantView):
+    """Send a test push to one person's devices (admin)."""
+
+    url = "/api/gate_access/push_test"
+    name = "api:gate_access:push_test"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        entry = _entry_for(hass)
+        if entry is None:
+            return self.json_message("Integracja nieskonfigurowana", 400)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        wid = (body or {}).get("webhook_id")
+        users = hass.data[DOMAIN][entry.entry_id]["users"]
+        user = next((u for u in users if u["webhook_id"] == wid), None)
+        if user is None:
+            return self.json_message("Nie znaleziono dostępu", 404)
+        if not user.get("push_subs"):
+            return self.json_message("Osoba nie włączyła przypomnień w aplikacji", 400)
+        sent = await gapp.send_push(
+            hass, entry, user, "Brama – test", "Powiadomienia działają.",
+            f"{_app_path(wid)}?app=1", "test",
+        )
+        await _save(hass, entry)
+        return self.json({"sent": sent, "devices": len(user.get("push_subs", []))})
 
 
 class GateStaticView(HomeAssistantView):
@@ -1274,6 +1490,19 @@ def _register_state_tracking(hass: HomeAssistant, entry: ConfigEntry) -> None:
     unsub = async_track_state_change_event(hass, targets, _changed)
     hass.data[DOMAIN][entry.entry_id]["unsub_state"] = unsub
 
+    # Reminders: stop as soon as the state sensor reports the opening closed.
+    watch = {gapp.state_entity(entry, t): t for t in targets}
+
+    @callback
+    def _state_changed(event):
+        tgt = watch.get(event.data["entity_id"])
+        if tgt and gapp.is_open(hass, entry, tgt) is False:
+            gapp.cancel_reminder(hass, entry, tgt)
+
+    hass.data[DOMAIN][entry.entry_id]["unsub_remind"] = async_track_state_change_event(
+        hass, list(watch), _state_changed
+    )
+
 
 async def _log_state(
     hass: HomeAssistant, entry: ConfigEntry, entity_id: str, status: str, user_id
@@ -1310,6 +1539,7 @@ async def _async_register_global(hass: HomeAssistant) -> None:
     hass.http.register_view(GateSettingsView())
     hass.http.register_view(GatePurgeView())
     hass.http.register_view(GateStaticView())
+    hass.http.register_view(GatePushTestView())
 
     add_extra_js_url(hass, _asset_url("card.js"))
 
@@ -1361,7 +1591,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "users": stored.get("users", []),
         "history": history,
         "stats": stored.get("stats", {}),
+        "vapid": stored.get("vapid") or gapp.new_vapid(),
+        "reminders": {},
     }
+    hass.data[DOMAIN][entry.entry_id]["save"] = lambda: _save(hass, entry)
+    if not stored.get("vapid"):
+        await _save(hass, entry)
 
     for user in hass.data[DOMAIN][entry.entry_id]["users"]:
         _register_webhook(hass, entry, user)
@@ -1381,9 +1616,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
     data = hass.data[DOMAIN].pop(entry.entry_id, None)
     if data:
-        unsub = data.get("unsub_state")
-        if unsub:
-            unsub()
+        for key in ("unsub_state", "unsub_remind"):
+            unsub = data.get(key)
+            if unsub:
+                unsub()
+        for item in data.get("reminders", {}).values():
+            if item.get("cancel"):
+                item["cancel"]()
         for user in data["users"]:
             _unregister_webhook(hass, user["webhook_id"])
     return True

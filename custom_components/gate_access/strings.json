@@ -28,7 +28,8 @@
           "targets": "Obiekty, log i auto-zamykanie",
           "sharing": "Udostępnianie panelu",
           "logging": "Rejestr i statystyki",
-          "autoclose": "Auto-zamykanie i przycisk"
+          "autoclose": "Auto-zamykanie i przycisk",
+          "reminders": "Stan bram i przypomnienia (aplikacja)"
         }
       },
       "targets": {
@@ -65,6 +66,11 @@
           "show_close": "Pokaż przycisk zamknięcia na stronie otwarcia",
           "confirm_open": "Wymagaj dotknięcia „Otwórz” (bezpieczne dla iPhone — odświeżenie nie otwiera)"
         }
+      },
+      "reminders": {
+        "title": "Stan i przypomnienia",
+        "description": "Dla każdego obiektu: encja stanu (np. kontaktron `binary_sensor`; puste = stan samego obiektu) i po ilu minutach otwarcia wysłać przypomnienie push osobie, która otworzyła (0 = wyłączone). Przypomnienie powtarza się do 3 razy, dopóki obiekt jest otwarty. binary_sensor: włączony = otwarte.",
+        "data": {}
       }
     },
     "error": {
