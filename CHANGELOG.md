@@ -4,6 +4,17 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.7.1] - 2026-11-02
+
+### Dodane
+- **Skróty aplikacji (Android)** — przytrzymanie ikony Brama pokazuje „Otwórz: <obiekt>”
+  (do 4 obiektów); skrót można przeciągnąć na ekran jako osobną ikonę.
+- **Ikona na ekran – otwieranie jednym dotknięciem** (iPhone i Android) — przycisk
+  przy każdym obiekcie w aplikacji; osobna ikona z nazwą obiektu, której dotknięcie
+  od razu otwiera ten obiekt. Ikona garażu dla obiektów `device_class: garage`.
+- Otwarcie przy starcie działa wyłącznie po uruchomieniu z ikony/skrótu (tryb aplikacji).
+  Ten sam link otwarty w przeglądarce nie otwiera niczego.
+
 ## [1.7.0] - 2026-11-02
 
 ### Dodane

@@ -125,6 +125,22 @@ def _user_targets(entry: ConfigEntry, user: dict | None) -> list[str]:
     return configured[:1]
 
 
+def _app_targets_info(hass: HomeAssistant, entry: ConfigEntry, user: dict) -> list[dict]:
+    out = []
+    for t in _user_targets(entry, user):
+        st = hass.states.get(t)
+        garage = bool(st and st.attributes.get("device_class") == "garage")
+        out.append(
+            {
+                "id": t,
+                "name": _target_name(hass, t),
+                "can_close": t.split(".")[0] in CLOSE_ACTIONS,
+                "kind": "garage" if garage else "icon",
+            }
+        )
+    return out
+
+
 def _app_path(webhook_id: str) -> str:
     return f"/api/webhook/{webhook_id}"
 
@@ -720,8 +736,10 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
             if user is None:
                 return web.Response(status=404)
             if asset == "manifest":
+                tl = _app_targets_info(hass, entry, user)
+                solo_t = next((t for t in tl if t["id"] == request.query.get("solo")), None)
                 return web.Response(
-                    text=gapp.manifest(path, name),
+                    text=gapp.manifest(path, name, tl, solo_t),
                     content_type="application/manifest+json",
                     headers={"Cache-Control": "no-cache"},
                 )
@@ -747,16 +765,17 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                     text=_html("Brak dostępu", _ACT_MSG.get(act, ""), True, fav),
                     content_type="text/html", status=403,
                 )
-            tl = [
-                {
-                    "id": t,
-                    "name": _target_name(hass, t),
-                    "can_close": t.split(".")[0] in CLOSE_ACTIONS,
-                }
-                for t in _user_targets(entry, user)
-            ]
+            tl = _app_targets_info(hass, entry, user)
+            solo_t = None
+            if request.query.get("solo"):
+                solo_t = next((t for t in tl if t["id"] == request.query["solo"]), None)
+                if solo_t is None:
+                    return web.Response(
+                        text=_html("Brak dostępu", "Ten obiekt nie jest przypisany.", True, fav),
+                        content_type="text/html", status=403,
+                    )
             return web.Response(
-                text=gapp.app_page(path, name, tl, data["vapid"]["public"]),
+                text=gapp.app_page(path, name, tl, data["vapid"]["public"], solo_t),
                 content_type="text/html",
                 headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY",
                          "Referrer-Policy": "no-referrer"},

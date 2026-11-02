@@ -206,3 +206,32 @@ async def test_legacy_link_and_options(hass: HomeAssistant, hass_client_no_auth)
     assert res["data"]["remind_map"] == {GATE: 15, WICKET: 0}
     assert res["data"]["state_map"] == {GATE: CONTACT}
     assert res["data"]["rate_limit"] == 5
+
+
+async def test_shortcuts_and_solo(hass: HomeAssistant, hass_client_no_auth):
+    import json as _json
+
+    entry, calls = await _setup(hass)
+    client = await hass_client_no_auth()
+    user = await async_create_user(hass, entry, "Kuba", target=GATE)
+    user["app_targets"] = [GATE, WICKET]
+    base = f"/api/webhook/{user['webhook_id']}"
+
+    m = _json.loads(await (await client.get(f"{base}?asset=manifest")).text())
+    assert [s["url"] for s in m["shortcuts"]] == [f"{base}?app=1&quick={GATE}", f"{base}?app=1&quick={WICKET}"]
+
+    ms = _json.loads(await (await client.get(f"{base}?asset=manifest&solo={WICKET}")).text())
+    assert ms["name"] == "Furtka" and ms["start_url"] == f"{base}?app=1&solo={WICKET}"
+
+    r = await client.get(f"{base}?app=1&solo={WICKET}")
+    html = await r.text()
+    assert r.status == 200 and "<title>Furtka</title>" in html and "Brama wjazdowa" not in html
+    # visiting quick/solo pages never opens server-side
+    await client.get(f"{base}?app=1&quick={GATE}")
+    await hass.async_block_till_done()
+    assert calls == []
+
+    r = await client.get(f"{base}?app=1&solo=cover.obca")
+    assert r.status == 403
+    for k in ("garage-180", "garage-512"):
+        assert (await client.get(f"{base}?asset={k}")).status == 200

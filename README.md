@@ -66,6 +66,13 @@ konta Apple Developer, konta HA i aplikacji Home Assistant.
 W szczegółach dostępu („Aplikacja na telefon”) zaznacz obiekty, które osoba widzi
 (np. trzy bramy i furtka). Strona aplikacji niczego nie otwiera sama — tylko dotknięcie.
 
+### Otwieranie jednym dotknięciem (od 1.7.1)
+- **Ikona na ekran**: w aplikacji przy obiekcie dotknij „Ikona na ekran – otwieranie
+  jednym dotknięciem” → link zostaje skopiowany → otwórz go w Safari/Chrome →
+  *Do ekranu początkowego*. Dotknięcie tej ikony od razu otwiera obiekt.
+- **Android – skróty aplikacji**: przytrzymaj ikonę Brama → „Otwórz: …”; skrót można
+  przeciągnąć na ekran główny.
+
 ### Stan i przypomnienia
 **Konfiguruj → Stan bram i przypomnienia**: dla każdego obiektu wskaż czujnik stanu
 (np. kontaktron `binary_sensor`, włączony = otwarta; puste = stan samego obiektu,

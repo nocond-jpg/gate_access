@@ -44,7 +44,10 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 _FRONTEND = os.path.join(os.path.dirname(__file__), "frontend")
-ICONS = {"icon-180": "icon-180.png", "icon-192": "icon-192.png", "icon-512": "icon-512.png"}
+ICONS = {
+    "icon-180": "icon-180.png", "icon-192": "icon-192.png", "icon-512": "icon-512.png",
+    "garage-180": "garage-180.png", "garage-192": "garage-192.png", "garage-512": "garage-512.png",
+}
 
 
 def _b64u(data: bytes) -> str:
@@ -273,20 +276,50 @@ def read_icon(name: str) -> bytes | None:
         return handle.read()
 
 
-def manifest(path: str, person: str) -> str:
+def _icons(path: str, kind: str = "icon") -> list[dict]:
+    return [
+        {"src": f"{path}?asset={kind}-192", "sizes": "192x192", "type": "image/png"},
+        {"src": f"{path}?asset={kind}-512", "sizes": "512x512", "type": "image/png"},
+    ]
+
+
+def manifest(path: str, person: str, targets: list[dict], solo: dict | None = None) -> str:
+    """Main app manifest (with long-press shortcuts) or a one-opening quick icon."""
+    base = {
+        "scope": path,
+        "display": "standalone",
+        "background_color": "#14171c",
+        "theme_color": "#14171c",
+    }
+    if solo:
+        return json.dumps(
+            {
+                **base,
+                "name": solo["name"],
+                "short_name": solo["name"][:12],
+                "id": f"{path}?solo={solo['id']}",
+                "start_url": f"{path}?app=1&solo={solo['id']}",
+                "icons": _icons(path, solo["kind"]),
+            },
+            ensure_ascii=False,
+        )
     return json.dumps(
         {
+            **base,
             "name": f"Brama – {person}",
             "short_name": "Brama",
             "id": path,
             "start_url": f"{path}?app=1",
-            "scope": path,
-            "display": "standalone",
-            "background_color": "#14171c",
-            "theme_color": "#14171c",
-            "icons": [
-                {"src": f"{path}?asset=icon-192", "sizes": "192x192", "type": "image/png"},
-                {"src": f"{path}?asset=icon-512", "sizes": "512x512", "type": "image/png"},
+            "icons": _icons(path),
+            # Android: long-press the app icon → "Otwórz: …" (can be dragged to the home screen)
+            "shortcuts": [
+                {
+                    "name": f"Otwórz: {t['name']}",
+                    "short_name": t["name"][:12],
+                    "url": f"{path}?app=1&quick={t['id']}",
+                    "icons": [{"src": f"{path}?asset={t['kind']}-192", "sizes": "192x192", "type": "image/png"}],
+                }
+                for t in targets[:4]
             ],
         },
         ensure_ascii=False,
@@ -341,10 +374,15 @@ button:disabled{opacity:.55}
 .push{margin-top:22px;font-size:.9rem;color:#a9aeb6}
 .push button{width:100%;margin-top:8px;background:transparent;color:#e8b45a;padding:12px;font-size:.95rem}
 .hint{background:#1e2229;border:1px dashed #3a4049;border-radius:8px;padding:12px;margin-top:10px;line-height:1.45}
+.pin{display:block;width:100%;margin-top:10px;background:transparent;border:0;color:#8b9099;font-size:.82rem;
+ font-weight:500;padding:6px;text-decoration:underline}
+body.solo .card{padding:22px}body.solo button.op{padding:34px 10px;font-size:1.4rem}
+.quick{font-size:1.05rem;text-align:center;margin:6px 0 14px;color:#e8b45a}
 """
 
 _APP_JS = r"""
-const P = location.pathname, VAPID = __VAPID__, FOCUS = new URLSearchParams(location.search).get('focus');
+const Q = new URLSearchParams(location.search);
+const P = location.pathname, VAPID = __VAPID__, FOCUS = Q.get('focus'), SOLO = Q.get('solo'), QUICK = Q.get('quick');
 const $ = s => document.querySelector(s);
 const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -417,16 +455,41 @@ async function pushUi(){
 }
 
 document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => act(b.dataset.id, b.dataset.act, b)));
+
+// "Ikona na ekran": a separate home-screen icon that opens one opening with a single tap
+document.querySelectorAll('[data-pin]').forEach(b => b.addEventListener('click', async () => {
+  const url = location.origin + P + '?app=1&solo=' + encodeURIComponent(b.dataset.pin);
+  const card = document.getElementById('c-' + b.dataset.pin);
+  let box = card.querySelector('.hint'); if (!box) { box = document.createElement('div'); box.className = 'hint'; card.appendChild(box); }
+  try { await navigator.clipboard.writeText(url); } catch (e) {}
+  box.innerHTML = ios
+    ? 'Skopiowano link. Otwórz <b>Safari</b>, wklej link, potem <b>Udostępnij → Do ekranu początkowego</b>. Dotknięcie tej ikony od razu otwiera <b>' + b.dataset.name + '</b>.'
+    : 'Skopiowano link. Otwórz go w <b>Chrome</b> → menu ⋮ → <b>Dodaj do ekranu głównego</b>. ' +
+      'Szybciej: przytrzymaj ikonę Brama na ekranie i przeciągnij skrót „Otwórz: ' + b.dataset.name + '” na ekran.';
+}));
+
+// One-tap launch: only when started from a home-screen icon / app shortcut (never from a plain link)
+const launchTarget = standalone ? (SOLO || QUICK) : null;
+if (launchTarget && document.getElementById('c-' + launchTarget)) {
+  if (QUICK) history.replaceState(null, '', P + '?app=1');   // a reload must not open again
+  act(launchTarget, 'open');
+} else if (SOLO && !standalone) {
+  $('#list').insertAdjacentHTML('afterbegin', '<div class="hint" style="margin-bottom:12px">' + (ios
+    ? 'Dodaj tę stronę: <b>Udostępnij → Do ekranu początkowego</b>. Dotknięcie ikony od razu otworzy bramę.'
+    : 'Dodaj tę stronę: menu ⋮ → <b>Dodaj do ekranu głównego</b>. Dotknięcie ikony od razu otworzy bramę.') + '</div>');
+}
 if (FOCUS) { const c = document.getElementById('c-' + FOCUS); if (c) { c.classList.add('focus'); c.scrollIntoView(); } }
 refresh(); setInterval(() => { if (!document.hidden) refresh(); }, 4000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
-pushUi().catch(() => {});
+if (!SOLO) pushUi().catch(() => {});
 """
 
 
-def app_page(path: str, person: str, targets: list[dict], vapid_public: str) -> str:
+def app_page(
+    path: str, person: str, targets: list[dict], vapid_public: str, solo: dict | None = None
+) -> str:
     cards = []
-    for t in targets:
+    for t in ([solo] if solo else targets):
         tid = html.escape(t["id"], quote=True)
         close_btn = (
             f"<button class='cl' data-act='close' data-id='{tid}'>Zamknij</button>"
@@ -436,25 +499,33 @@ def app_page(path: str, person: str, targets: list[dict], vapid_public: str) -> 
             f"<div class='card' id='c-{tid}'><div class='row'>"
             f"<span class='nm'>{html.escape(t['name'])}</span><span class='st'>—</span></div>"
             f"<div class='btns'><button class='op' data-act='open' data-id='{tid}'>Otwórz</button>"
-            f"{close_btn}</div><div class='msg'></div></div>"
+            f"{close_btn}</div><div class='msg'></div>"
+            + ("" if solo else
+               f"<button class='pin' data-pin='{tid}' data-name='{html.escape(t['name'], quote=True)}'>"
+               "Ikona na ekran – otwieranie jednym dotknięciem</button>")
+            + "</div>"
         )
     js = _APP_JS.replace("__VAPID__", json.dumps(vapid_public))
     p = html.escape(path, quote=True)
+    title = html.escape(solo["name"] if solo else "Brama")
+    mf = f"{p}?asset=manifest" + (f"&amp;solo={html.escape(solo['id'], quote=True)}" if solo else "")
+    icon = f"{solo['kind']}-180" if solo else "icon-180"
     return (
         "<!doctype html><html lang='pl'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1,viewport-fit=cover'>"
         "<meta name='apple-mobile-web-app-capable' content='yes'>"
         "<meta name='mobile-web-app-capable' content='yes'>"
         "<meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'>"
-        "<meta name='apple-mobile-web-app-title' content='Brama'>"
+        f"<meta name='apple-mobile-web-app-title' content='{title}'>"
         "<meta name='theme-color' content='#14171c'>"
         "<meta name='referrer' content='no-referrer'>"
         "<meta name='robots' content='noindex,nofollow'>"
-        f"<link rel='manifest' href='{p}?asset=manifest'>"
-        f"<link rel='apple-touch-icon' href='{p}?asset=icon-180'>"
+        f"<link rel='manifest' href='{mf}'>"
+        f"<link rel='apple-touch-icon' href='{p}?asset={icon}'>"
         f"<link rel='icon' type='image/png' href='{p}?asset=icon-192'>"
-        f"<title>Brama</title><style>{_APP_CSS}</style></head><body>"
-        f"<h1>Brama</h1><div class='sub'>{html.escape(person)}</div>"
+        f"<title>{title}</title><style>{_APP_CSS}</style></head>"
+        f"<body class='{'solo' if solo else ''}'>"
+        f"<h1>{title}</h1><div class='sub'>{html.escape(person)}</div>"
         f"<div id='list'>{''.join(cards) or '<div class=card>Brak przypisanych obiektów.</div>'}</div>"
         "<div class='push' id='push'></div>"
         f"<script>{js}</script></body></html>"
