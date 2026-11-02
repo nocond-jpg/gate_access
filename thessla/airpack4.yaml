@@ -1,0 +1,393 @@
+# Thessla AirPack4 - Modbus RTU (adres 10, 9600 8N1) jako podurzadzenie ESPHome "Thessla AirPack4".
+# Wymaga w pliku urzadzenia: modbus id "modbus1" (wspolna magistrala RS-485).
+esphome:
+  devices:
+    - id: airpack4
+      name: "Thessla AirPack4"
+
+# Czas ostatniego poprawnego odczytu (millis) - podstawa "Komunikacja OK".
+globals:
+  - id: modbus_last_ok
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+
+modbus_controller:
+  - id: thessla_modbus
+    address: 10
+    modbus_id: modbus1
+    update_interval: 30s
+    setup_priority: -10
+
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Temperatura czerpnia
+    id: thessla_modbus_czerpnia_temp
+    address: 16
+    register_type: read
+    accuracy_decimals: 1
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    filters: &tfilt
+      - multiply: 0.1
+      - lambda: |-
+          if (x > 200.0f || x < -99.0f) return {};
+          return x;
+    on_raw_value:
+      - lambda: 'id(modbus_last_ok) = millis();'
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Temperatura nawiew
+    id: thessla_modbus_nawiew_temp
+    address: 17
+    register_type: read
+    accuracy_decimals: 1
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    filters: *tfilt
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Temperatura wywiew
+    id: thessla_modbus_wywiew_temp
+    address: 18
+    register_type: read
+    accuracy_decimals: 1
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    filters: *tfilt
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Temperatura FPX
+    id: thessla_modbus_fpx_temp
+    address: 19
+    register_type: read
+    accuracy_decimals: 1
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    filters: *tfilt
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Temperatura PCB
+    address: 22
+    register_type: read
+    accuracy_decimals: 1
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    entity_category: diagnostic
+    icon: "mdi:cpu-64-bit"
+    skip_updates: 4
+    filters: *tfilt
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Strumień nawiew
+    id: thessla_modbus_strumien_nawiew
+    address: 256
+    register_type: holding
+    accuracy_decimals: 0
+    value_type: U_WORD
+    unit_of_measurement: "m³/h"
+    state_class: measurement
+    filters: &ffilt
+      - lambda: |-
+          if (x == 65535) return {};
+          return x;
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Strumień wywiew
+    id: thessla_modbus_strumien_wywiew
+    address: 257
+    register_type: holding
+    accuracy_decimals: 0
+    value_type: U_WORD
+    unit_of_measurement: "m³/h"
+    state_class: measurement
+    filters: *ffilt
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Stopień zużycia filtra nawiewnego", address: 4482, register_type: holding, value_type: U_WORD, unit_of_measurement: "%", state_class: measurement, icon: "mdi:air-filter", skip_updates: 120}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Stopień zużycia filtra wywiewnego", address: 4483, register_type: holding, value_type: U_WORD, unit_of_measurement: "%", state_class: measurement, icon: "mdi:air-filter", skip_updates: 120}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Data filtra nawiew (raw)", id: thessla_modbus_filtr_nawiew_data_raw, address: 4660, register_type: holding, value_type: U_WORD, accuracy_decimals: 0, skip_updates: 60, entity_category: diagnostic}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Data filtra wywiew (raw)", id: thessla_modbus_filtr_wywiew_data_raw, address: 4662, register_type: holding, value_type: U_WORD, accuracy_decimals: 0, skip_updates: 60, entity_category: diagnostic}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "FPX flaga", address: 4192, register_type: holding, value_type: U_WORD, accuracy_decimals: 0, skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "FPX tryb", address: 4198, register_type: holding, value_type: U_WORD, accuracy_decimals: 0, skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Aktualny status bypass", address: 4330, register_type: holding, value_type: U_WORD, accuracy_decimals: 0, skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Alarm", address: 8192, register_type: holding, value_type: U_WORD, accuracy_decimals: 0, skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Numer alarmu S zatrzymania", address: 4384, register_type: holding, value_type: U_WORD, accuracy_decimals: 0, skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Status ERV", address: 4704, register_type: holding, value_type: U_WORD, accuracy_decimals: 0, entity_category: diagnostic, icon: "mdi:radiator", skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, id: sezon_raw, address: 4209, register_type: holding, value_type: U_WORD, internal: true}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "CF zadana intensywność nawiewu", address: 272, register_type: read, value_type: U_WORD, unit_of_measurement: "%", entity_category: diagnostic, skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "CF zadana intensywność wywiewu", address: 273, register_type: read, value_type: U_WORD, unit_of_measurement: "%", entity_category: diagnostic, skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "CF zadany strumień nawiewu", id: thessla_cf_zadany_nawiew, address: 274, register_type: read, value_type: U_WORD, unit_of_measurement: "m³/h", entity_category: diagnostic, skip_updates: 2}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "CF zadany strumień wywiewu", address: 275, register_type: read, value_type: U_WORD, unit_of_measurement: "m³/h", entity_category: diagnostic, skip_updates: 2}
+  # Metryki liczone lokalnie (jak w ThesslaGreen_HA): sprawnosc temperaturowa i moc odzysku.
+  # Moc odzysku [kW] = 0.000335 * V[m3/h] * (Tnawiew - Tczerpnia); V = strumien nawiewu (256),
+  # a gdy CF nie podaje (65535) - zadany strumien CF (274).
+  - platform: template
+    device_id: airpack4
+    name: Sprawność odzysku
+    id: thessla_sprawnosc
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    state_class: measurement
+    icon: "mdi:percent"
+    update_interval: 60s
+    lambda: |-
+      float to = id(thessla_modbus_czerpnia_temp).state;
+      float ts = id(thessla_modbus_nawiew_temp).state;
+      float te = id(thessla_modbus_wywiew_temp).state;
+      if (std::isnan(to) || std::isnan(ts) || std::isnan(te)) return NAN;
+      if (std::fabs(te - to) < 0.5f) return NAN;
+      return (ts - to) / (te - to) * 100.0f;
+  - platform: template
+    device_id: airpack4
+    name: Moc odzysku
+    id: thessla_moc_odzysku
+    unit_of_measurement: "kW"
+    device_class: power
+    accuracy_decimals: 3
+    state_class: measurement
+    icon: "mdi:fire"
+    update_interval: 60s
+    lambda: |-
+      float to = id(thessla_modbus_czerpnia_temp).state;
+      float ts = id(thessla_modbus_nawiew_temp).state;
+      float v = id(thessla_modbus_strumien_nawiew).state;
+      if (std::isnan(v) || v <= 0.0f) {
+        float vz = id(thessla_cf_zadany_nawiew).state;
+        v = (std::isnan(vz) || vz <= 0.0f || vz >= 65535.0f) ? NAN : vz;
+      }
+      if (std::isnan(to) || std::isnan(ts) || std::isnan(v)) return NAN;
+      return 0.000335f * v * (ts - to);
+
+binary_sensor:
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Status pracy", address: 10, register_type: coil, device_class: running}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Siłownik bypassu", address: 9, register_type: coil}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "CF aktywny", address: 271, register_type: read, entity_category: diagnostic}
+  # OK = poprawny odczyt w ciagu ostatnich 2 min (4 cykle odpytywania).
+  - {platform: template, device_id: airpack4, name: "Komunikacja OK", device_class: connectivity, entity_category: diagnostic, lambda: "return id(modbus_last_ok) != 0 && (millis() - id(modbus_last_ok)) < 120000;"}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wymiana filtrów", address: 8444, register_type: holding, device_class: problem, icon: "mdi:air-filter", skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Błąd ogólny (ERROR)", address: 8193, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Błąd komunikacji I2C", address: 8194, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zabezpieczenie termiczne nagrzewnicy FPX — max ilość zadziałań", address: 8198, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak możliwości kalibracji — zbyt niska temperatura zewnętrzna", address: 8199, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Konieczne wprowadzenie klucza produktu", address: 8200, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Centrala zatrzymana z panelu AirS", address: 8201, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zadziałał wyłącznik P.POŻ", address: 8202, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Centrala zatrzymana z panelu Air+/AirL+/Air++/AirMobile", address: 8205, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zabezpieczenie przeciwzamrożeniowe nagrzewnicy wodnej — max ilość zadziałań", address: 8206, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zabezpieczenie przeciwzamrożeniowe nagrzewnicy wodnej — brak efektów", address: 8207, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zabezpieczenie termiczne nagrzewnicy elektrycznej (centrala, FPX aktywny)", address: 8208, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Nie wymieniono filtrów w centrali (z presostatem)", address: 8209, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Nie wymieniono filtrów w centrali (bez presostatu)", address: 8211, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Nie wymieniono filtra kanałowego", address: 8212, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Nie zadziałało zabezpieczenie przeciwzamrożeniowe wymiennika FPX", address: 8214, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Uszkodzony czujnik temp. wlotu do wymiennika FPX (TZ2)", address: 8215, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Uszkodzony czujnik temp. kanału nawiewnego za nagrzewnicą wodną", address: 8216, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Uszkodzony czujnik temperatury powietrza zewnętrznego", address: 8217, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Uszkodzony czujnik temp. zewnętrznej i czujnik GWC glikolowego", address: 8218, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Awaria układu sterowania nagrzewnicy wtórnej — odłącz zasilanie", address: 8220, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zbyt wysoka temperatura przed rekuperatorem", address: 8221, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Nie działa wentylator nawiewny", address: 8222, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Nie działa wentylator wywiewny", address: 8223, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak komunikacji z modułem TG-02", address: 8224, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Konieczne wprowadzenie klucza produktu centrali AirPack", address: 8291, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak odczytu czujnika CZERPNIA TZ1", address: 8292, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak odczytu czujnika NAWIEW TN1", address: 8293, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak odczytu czujnika WYWIEW TP", address: 8294, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak odczytu czujnika FPX TZ2", address: 8295, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak odczytu czujnika temp. pomieszczenia centrali TO", address: 8296, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak odczytu czujnika kanału nawiewnego za wymiennikiem TN2", address: 8297, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak odczytu czujnika za wymiennikiem ciepła TW", address: 8300, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Awaria czujnika CF wentylatora nawiewnego", address: 8330, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Awaria czujnika CF wentylatora wywiewnego", address: 8331, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Awaria czujnika CF filtra nawiewnego", address: 8332, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Awaria czujnika CF filtra wywiewnego", address: 8333, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak filtra nawiewnego", address: 8334, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak filtra wywiewnego", address: 8335, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Błąd utrzymania przepływu — wentylator nawiewny", address: 8336, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Błąd utrzymania przepływu — wentylator wywiewny", address: 8337, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Konieczna wymiana filtra nawiewnego (CF)", address: 8338, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Konieczna wymiana filtra wywiewnego (CF)", address: 8339, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zużycie filtra nawiewnego powyżej wartości granicznej", address: 8340, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zużycie filtra wywiewnego powyżej wartości granicznej", address: 8341, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Konieczna wymiana filtra nawiewnego (czas)", address: 8342, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Konieczna wymiana filtra wywiewnego (czas)", address: 8343, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Temperatura powietrza wywiewanego powyżej maksymalnej", address: 8344, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Upłynął max czas użytkowania filtra nawiewnego", address: 8348, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Upłynął max czas użytkowania filtra wywiewnego", address: 8349, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Regulacja instalacji nie została wykonana", address: 8390, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zabezpieczenie termiczne nagrzewnicy elektrycznej w centrali", address: 8392, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Zabezpieczenie termiczne nagrzewnicy elektrycznej w kanale", address: 8393, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Awaria układu sterowania nagrzewnicy wtórnej (8394)", address: 8394, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Awaria układu sterowania nagrzewnicy wtórnej (8395)", address: 8395, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Brak komunikacji z modułem Expansion", address: 8441, register_type: holding, device_class: problem, skip_updates: 4}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Konieczna wymiana filtra kanałowego", address: 8443, register_type: holding, device_class: problem, skip_updates: 4}
+
+switch:
+  - platform: template
+    device_id: airpack4
+    name: "Sezon (zima)"
+    icon: "mdi:sun-snowflake-variant"
+    lambda: return id(sezon_raw).state == 1;
+    turn_on_action:
+      - lambda: |-
+          auto cmd = esphome::modbus_controller::ModbusCommandItem::create_write_multiple_command(id(thessla_modbus), 4209, 1, {1});
+          id(thessla_modbus)->queue_command(cmd);
+    turn_off_action:
+      - lambda: |-
+          auto cmd = esphome::modbus_controller::ModbusCommandItem::create_write_multiple_command(id(thessla_modbus), 4209, 1, {0});
+          id(thessla_modbus)->queue_command(cmd);
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wietrzenie", address: 4223, register_type: holding, icon: "mdi:weather-windy"}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Bypass", address: 4320, register_type: holding, skip_updates: 1, inverted: true, icon: "mdi:valve"}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "⚠ Hard Reset centrali", address: 4413, register_type: holding, skip_updates: 1, icon: "mdi:alert-circle", entity_category: config}
+
+number:
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Prędkość manualna", address: 4210, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 3, min_value: 10, max_value: 100, step: 1, mode: slider}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Prędkość chwilowa", address: 4211, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 3, min_value: 10, max_value: 100, step: 1, mode: slider}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Max intensywność nawiewu", address: 4117, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 100, max_value: 150, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Max intensywność wywiewu", address: 4119, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 100, max_value: 150, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Nominalny strumień nawiewu", address: 4354, unit_of_measurement: "m³/h", value_type: U_WORD, skip_updates: 11, min_value: 110, max_value: 450, step: 10, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Nominalny strumień wywiewu", address: 4355, unit_of_measurement: "m³/h", value_type: U_WORD, skip_updates: 11, min_value: 110, max_value: 450, step: 10, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Chwilowy strumień wywiewu", address: 4401, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 1, min_value: 10, max_value: 100, step: 10, mode: slider}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. bieg 1", address: 4216, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 10, max_value: 45, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. bieg 2", address: 4217, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 46, max_value: 75, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. bieg 3", address: 4218, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 76, max_value: 100, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. kominek nawiew", address: 4228, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 5, max_value: 50, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. wietrzenie łazienka", address: 4229, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 100, max_value: 150, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. wietrzenie", address: 4230, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 100, max_value: 150, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. zanieczyszczenie", address: 4231, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 100, max_value: 150, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. pusty dom", address: 4232, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 10, max_value: 50, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. wietrzenie (przełącznik)", address: 4238, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 100, max_value: 150, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Wsp. otwarte okna", address: 4239, unit_of_measurement: "%", value_type: U_WORD, skip_updates: 11, min_value: 10, max_value: 101, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Czas wietrzenia (panel)", address: 4233, unit_of_measurement: min, value_type: U_WORD, skip_updates: 11, min_value: 1, max_value: 45, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Czas wietrzenia łazienki (przełącznik)", address: 4234, unit_of_measurement: min, value_type: U_WORD, skip_updates: 11, min_value: 1, max_value: 45, step: 1, mode: box, entity_category: config}
+  - {platform: modbus_controller, modbus_controller_id: thessla_modbus, device_id: airpack4, name: "Czas trybu kominek", address: 4237, unit_of_measurement: min, value_type: U_WORD, skip_updates: 11, min_value: 1, max_value: 10, step: 1, mode: box, entity_category: config}
+
+select:
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Tryb sterowania
+    address: 4208
+    icon: "mdi:swap-horizontal"
+    optionsmap:
+      "Automatyczny": 0
+      "Manualny": 1
+      "Chwilowy": 2
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: Tryb pracy
+    address: 4224
+    icon: "mdi:home-thermometer"
+    optionsmap:
+      "Wietrzenie": 7
+      "Zwykły": 0
+      "Pusty dom": 11
+      "Otwarte okna": 10
+      "Kominek": 2
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: ON/OFF
+    address: 4387
+    icon: "mdi:power"
+    optionsmap:
+      "Wyłączony": 0
+      "Włączony": 1
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: EKO/KOMFORT
+    address: 4304
+    icon: "mdi:leaf"
+    skip_updates: 2
+    optionsmap:
+      "EKO": 0
+      "KOMFORT": 1
+  - platform: modbus_controller
+    modbus_controller_id: thessla_modbus
+    device_id: airpack4
+    name: ERV tryb
+    address: 4711
+    icon: "mdi:radiator"
+    skip_updates: 2
+    optionsmap:
+      "ERV nieaktywny": 0
+      "ERV tryb 1": 1
+      "ERV tryb 2": 2
+
+# Daty filtrow (4660/4662): dzien b0-4, miesiac b5-8, rok b9-15.
+# Rok: baza 1999 - skalibrowane wg panelu (6.09.2027 zamiast 2028 przy bazie 2000).
+text_sensor:
+  - platform: template
+    device_id: airpack4
+    name: Data wymiany filtra nawiewnego
+    icon: "mdi:calendar-clock"
+    update_interval: 60s
+    lambda: |-
+      if (std::isnan(id(thessla_modbus_filtr_nawiew_data_raw).state)) return {};
+      uint16_t v = (uint16_t) id(thessla_modbus_filtr_nawiew_data_raw).state;
+      if (v == 0 || v == 0xFFFF) return {};
+      int d = v & 0x1F, m = (v >> 5) & 0x0F;
+      if (d < 1 || d > 31 || m < 1 || m > 12) return {};
+      char buf[11];
+      snprintf(buf, sizeof(buf), "%04d-%02d-%02d", 1999 + ((v >> 9) & 0x7F), m, d);
+      return std::string(buf);
+  - platform: template
+    device_id: airpack4
+    name: Data wymiany filtra wywiewnego
+    icon: "mdi:calendar-clock"
+    update_interval: 60s
+    lambda: |-
+      if (std::isnan(id(thessla_modbus_filtr_wywiew_data_raw).state)) return {};
+      uint16_t v = (uint16_t) id(thessla_modbus_filtr_wywiew_data_raw).state;
+      if (v == 0 || v == 0xFFFF) return {};
+      int d = v & 0x1F, m = (v >> 5) & 0x0F;
+      if (d < 1 || d > 31 || m < 1 || m > 12) return {};
+      char buf[11];
+      snprintf(buf, sizeof(buf), "%04d-%02d-%02d", 1999 + ((v >> 9) & 0x7F), m, d);
+      return std::string(buf);
+
+button:
+  - platform: template
+    device_id: airpack4
+    name: Wymiana filtra nawiewnego
+    icon: "mdi:air-filter"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(thessla_modbus)->queue_command(esphome::modbus_controller::ModbusCommandItem::create_write_single_command(id(thessla_modbus), 8191, 17));
+  - platform: template
+    device_id: airpack4
+    name: Wymiana filtra wywiewnego
+    icon: "mdi:air-filter"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(thessla_modbus)->queue_command(esphome::modbus_controller::ModbusCommandItem::create_write_single_command(id(thessla_modbus), 8191, 33));
+  - platform: template
+    device_id: airpack4
+    name: Wymiana obu filtrów
+    icon: "mdi:air-filter"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(thessla_modbus)->queue_command(esphome::modbus_controller::ModbusCommandItem::create_write_single_command(id(thessla_modbus), 8191, 17));
+          id(thessla_modbus)->queue_command(esphome::modbus_controller::ModbusCommandItem::create_write_single_command(id(thessla_modbus), 8191, 33));
