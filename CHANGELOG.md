@@ -4,6 +4,13 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.9.1] - 2026-11-03
+
+### Zmienione
+- Adres parowania `/api/webhook/tesla` jest rejestrowany dopiero po wygenerowaniu kodu
+  na telefonie i usuwany po użyciu kodu albo po jego wygaśnięciu (5 min). Poza parowaniem
+  adres nie istnieje.
+
 ## [1.9.0] - 2026-11-03
 
 ### Dodane

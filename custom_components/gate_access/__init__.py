@@ -953,6 +953,15 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                 return web.json_response(
                     {"ok": False, "msg": "Za dużo aktywnych kodów – odczekaj 5 minut"}, status=429
                 )
+            if not _car_webhook_sync(hass, entry):
+                data["car_codes"].pop(code, None)
+                return web.json_response(
+                    {"ok": False, "msg": "Adres parowania jest zajęty przez inną integrację"}, status=409
+                )
+            # close the pairing address once this code expires
+            entry.async_on_unload(async_call_later(
+                hass, CAR_CODE_TTL + 2, lambda _now: _car_webhook_sync(hass, entry)
+            ))
             base = (_cfg(entry, CONF_BASE_URL, "") or "").rstrip("/") or str(request.url.origin())
             host = base.split("://", 1)[-1]
             return web.json_response(
@@ -1108,6 +1117,7 @@ def _make_car_handler(hass: HomeAssistant, entry: ConfigEntry):
         if not isinstance(payload, dict):
             return web.json_response({"ok": False, "msg": "Nieprawidłowe żądanie"}, status=400)
         wid = gapp.redeem_car_code(data.setdefault("car_codes", {}), fails, payload.get("code"))
+        _car_webhook_sync(hass, entry)   # last code used/expired -> pairing address disappears
         user = next((u for u in data["users"] if u["webhook_id"] == wid), None) if wid else None
         if user is None:
             _LOGGER.warning("Gate Access: błędny kod parowania samochodu")
@@ -1130,15 +1140,33 @@ def _make_car_handler(hass: HomeAssistant, entry: ConfigEntry):
 
 
 @callback
-def _register_car_webhook(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    try:
-        webhook.async_register(
-            hass, DOMAIN, "Brama – parowanie samochodu", CAR_WEBHOOK_ID,
-            _make_car_handler(hass, entry), local_only=False, allowed_methods=["GET", "POST"],
-        )
-    except ValueError:
-        _LOGGER.warning("Gate Access: webhook %s jest już zajęty – parowanie samochodu wyłączone",
-                        CAR_WEBHOOK_ID)
+def _car_webhook_sync(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """The pairing address exists only while a pairing code is valid.
+
+    Registered when a phone issues a code, removed after the code is used or expires.
+    Returns True when the address is active.
+    """
+    data = hass.data[DOMAIN].get(entry.entry_id)
+    if data is None:
+        return False
+    codes = data.setdefault("car_codes", {})
+    gapp.purge_car_codes(codes)
+    active = data.get("car_wh", False)
+    if codes and not active:
+        try:
+            webhook.async_register(
+                hass, DOMAIN, "Brama – parowanie samochodu", CAR_WEBHOOK_ID,
+                _make_car_handler(hass, entry), local_only=False, allowed_methods=["GET", "POST"],
+            )
+            data["car_wh"] = True
+        except ValueError:
+            _LOGGER.warning("Gate Access: webhook %s jest już zajęty – parowanie samochodu niedostępne",
+                            CAR_WEBHOOK_ID)
+            return False
+    elif not codes and active:
+        _unregister_webhook(hass, CAR_WEBHOOK_ID)
+        data["car_wh"] = False
+    return bool(data.get("car_wh"))
 
 
 @callback
@@ -1859,7 +1887,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     for user in hass.data[DOMAIN][entry.entry_id]["users"]:
         _register_webhook(hass, entry, user)
-    _register_car_webhook(hass, entry)
 
     await _async_register_global(hass)
     await _register_panel(hass, entry)
@@ -1885,5 +1912,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 item["cancel"]()
         for user in data["users"]:
             _unregister_webhook(hass, user["webhook_id"])
-    _unregister_webhook(hass, CAR_WEBHOOK_ID)
+    if data and data.get("car_wh"):
+        _unregister_webhook(hass, CAR_WEBHOOK_ID)
     return True

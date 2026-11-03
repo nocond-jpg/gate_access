@@ -765,10 +765,15 @@ def verify_action(
 from .const import CAR_CODE_FAIL_WINDOW, CAR_CODE_MAX_FAIL, CAR_CODE_TTL
 
 
-def issue_car_code(store: dict, webhook_id: str) -> str | None:
+def purge_car_codes(store: dict) -> None:
     now = _time.monotonic()
     for k in [k for k, v in store.items() if v["exp"] < now]:
         store.pop(k)
+
+
+def issue_car_code(store: dict, webhook_id: str) -> str | None:
+    now = _time.monotonic()
+    purge_car_codes(store)
     if sum(1 for v in store.values() if v["wid"] == webhook_id) >= 3:
         return None
     while True:

@@ -369,8 +369,9 @@ async def test_car_pairing(hass: HomeAssistant, hass_client_no_auth):
     base = f"/api/webhook/{user['webhook_id']}"
     car_base = "/api/webhook/tesla"
 
+    # pairing address is not registered until a code is issued
     r = await client.get(car_base)
-    assert r.status == 200 and "Połącz samochód" in await r.text()
+    assert "Połącz samochód" not in await r.text()
 
     # unapproved / unsigned phone cannot issue a code
     r = await client.post(f"{base}?do=carcode&t=car", json={})
@@ -380,6 +381,8 @@ async def test_car_pairing(hass: HomeAssistant, hass_client_no_auth):
     st, j, _ = await ph.act("carcode", "car")
     assert st == 200 and j["ok"] and len(j["code"]) == 6 and j["url"].endswith("/api/webhook/tesla")
     code = j["code"]
+    r = await client.get(car_base)
+    assert r.status == 200 and "Połącz samochód" in await r.text()
 
     car = Phone(client, car_base)
     # wrong code
@@ -389,9 +392,10 @@ async def test_car_pairing(hass: HomeAssistant, hass_client_no_auth):
     r = await client.post(f"{car_base}?do=pair", json={"code": code, "pub": car.pub})
     j = await r.json()
     assert r.status == 200 and j["ok"] and j["path"] == base
-    # single use
+    # single use: the code is gone and so is the pairing address
     r = await client.post(f"{car_base}?do=pair", json={"code": code, "pub": car.pub})
-    assert r.status == 403
+    assert "Nieprawidłowy" not in await r.text()
+    assert "Połącz samochód" not in await (await client.get(car_base)).text()
 
     car.base, car.dev = base, j["dev"]
     st, j2, _ = await car.act("open", GATE)
@@ -403,8 +407,20 @@ async def test_car_pairing(hass: HomeAssistant, hass_client_no_auth):
     html = await r.text()
     assert "class='car'" in html and "class='pin'" not in html and "id='carpair'" not in html
 
-    # brute force lock
-    for _ in range(12):
-        await client.post(f"{car_base}?do=pair", json={"code": "123456", "pub": car.pub})
-    r = await client.post(f"{car_base}?do=pair", json={"code": "123456", "pub": car.pub})
+    # expiry closes the address
+    from custom_components.gate_access import _car_webhook_sync
+    st, j, _ = await ph.act("carcode", "car")
+    assert j["ok"]
+    data = hass.data[DOMAIN][entry.entry_id]
+    for rec in data["car_codes"].values():
+        rec["exp"] = 0
+    assert _car_webhook_sync(hass, entry) is False
+    assert "Połącz samochód" not in await (await client.get(car_base)).text()
+
+    # brute force lock (while a code is active)
+    st, j, _ = await ph.act("carcode", "car")
+    bad = "123456" if j["code"] != "123456" else "654321"
+    for _ in range(10):
+        await client.post(f"{car_base}?do=pair", json={"code": bad, "pub": car.pub})
+    r = await client.post(f"{car_base}?do=pair", json={"code": j["code"], "pub": car.pub})
     assert r.status == 429

@@ -114,6 +114,7 @@ także dla aplikacji i przypomnień.
 3. Strona przejdzie do widoku samochodowego z dużymi przyciskami – dodaj ją do ulubionych.
    Samochód jest zapisany jako urządzenie „Tesla · przeglądarka” (do usunięcia w panelu).
 
+Adres parowania działa tylko przez 5 minut od wygenerowania kodu (do jego użycia).
 Otwieranie zawsze wymaga dotknięcia przycisku; strona nie otwiera bramy sama.
 
 ## Użycie
