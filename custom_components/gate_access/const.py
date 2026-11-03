@@ -46,6 +46,10 @@ DEVICES_MAX_PER_USER = 10
 DEVICES_PENDING_MAX = 3
 PENDING_TTL_DAYS = 7
 NONCE_TTL = 30
+CAR_WEBHOOK_ID = "tesla"           # short pairing address for car browsers: /api/webhook/tesla
+CAR_CODE_TTL = 300                 # pairing code lifetime (s)
+CAR_CODE_MAX_FAIL = 10             # failed code attempts per CAR_CODE_FAIL_WINDOW before lock
+CAR_CODE_FAIL_WINDOW = 600
 APPROVE_ACTION_PREFIX = "GATE_ACCESS_"
 
 STATE_DOMAINS = ["binary_sensor", "cover", "lock", "switch", "input_boolean"]

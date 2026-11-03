@@ -4,6 +4,19 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [1.9.0] - 2026-11-03
+
+### Dodane
+- **Tryb samochodowy (Tesla).** Przeglądarka w aucie nie pozwala wkleić linku, więc
+  samochód łączy się kodem: w aplikacji na telefonie „Połącz z samochodem (Tesla)” daje
+  jednorazowy 6-cyfrowy kod (ważny 5 min, podpisane żądanie z zatwierdzonego urządzenia),
+  w aucie wpisuje się krótki adres `…/api/webhook/tesla` i kod na klawiaturze ekranowej.
+  Samochód dostaje własny klucz urządzenia, zatwierdzony automatycznie (kod wydało już
+  zatwierdzone urządzenie tej osoby). Blokada 10 min po 10 błędnych kodach.
+- Widok samochodowy (`?car=1` lub przeglądarka Tesli): duże przyciski w siatce, bez
+  ikon na ekran i powiadomień push.
+- Historia: zatwierdzenie urządzenia ze źródłem „kod samochodu”.
+
 ## [1.8.0] - 2026-11-02
 
 ### Dodane

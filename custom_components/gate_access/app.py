@@ -378,6 +378,11 @@ button:disabled{opacity:.55}
 .hint.err{border-color:#c9524a}.hint.wait{border-color:#c8952f}
 .hint button{display:block;width:100%;margin-top:10px;background:transparent;color:#e8b45a;padding:12px;font-size:.95rem}
 #dev .hint{margin:0 0 12px}
+body.car{padding:24px 28px}body.car h1{font-size:2rem}body.car #list{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+body.car .card{margin:0;padding:22px}body.car .nm{font-size:1.5rem}body.car .st{font-size:1rem}
+body.car button.op,body.car button.cl{padding:30px 10px;font-size:1.5rem}
+.carcode{font-size:2.6rem;letter-spacing:.3em;text-align:center;font-weight:700;color:#ffcf7a;margin:10px 0}
+button.carpair{margin-top:18px;background:transparent;color:#e8b45a;width:100%}
 .pin{display:block;width:100%;margin-top:10px;background:transparent;border:0;color:#8b9099;font-size:.82rem;
  font-weight:500;padding:6px;text-decoration:underline}
 body.solo .card{padding:22px}body.solo button.op{padding:34px 10px;font-size:1.4rem}
@@ -388,6 +393,7 @@ _APP_JS = r"""
 const Q = new URLSearchParams(location.search);
 const P = location.pathname, WID = P.split('/').pop(), VAPID = __VAPID__;
 const FOCUS = Q.get('focus'), SOLO = Q.get('solo'), QUICK = Q.get('quick');
+const CAR = Q.get('car') === '1' || /Tesla/.test(navigator.userAgent);
 const $ = s => document.querySelector(s);
 const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -410,6 +416,7 @@ async function idbGet(k){ const db = await idb(); return new Promise((res, rej) 
 async function idbPut(k, v){ const db = await idb(); return new Promise((res, rej) => {
   const t = db.transaction('keys', 'readwrite'); t.objectStore('keys').put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
 function devLabel(){ const ua = navigator.userAgent;
+  if (CAR) return 'Tesla · przeglądarka';
   const d = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'urządzenie';
   const name = SOLO ? (document.title || '') : '';
   return d + (standalone ? ' · aplikacja' : ' · przeglądarka') + (name ? ' · ' + name : ''); }
@@ -538,6 +545,19 @@ document.querySelectorAll('[data-pin]').forEach(b => b.addEventListener('click',
       'Szybciej: przytrzymaj ikonę Brama na ekranie i przeciągnij skrót „Otwórz: ' + b.dataset.name + '” na ekran.';
 }));
 
+// Car pairing: an approved phone issues a one-time code typed into the car browser
+const cp = document.getElementById('carpair');
+if (cp) cp.addEventListener('click', async () => {
+  const box = $('#carbox'); if (STATUS !== 'approved') { box.innerHTML = '<div class="hint err">Najpierw to urządzenie musi być zatwierdzone.</div>'; return; }
+  cp.disabled = true; box.innerHTML = '<div class="hint">Generuję kod…</div>';
+  try {
+    const j = await signed('carcode', 'car');
+    if (!j.ok) { box.innerHTML = '<div class="hint err">' + (j.msg || 'Nie udało się') + '</div>'; return; }
+    box.innerHTML = '<div class="hint">W samochodzie otwórz przeglądarkę i wpisz adres:<br><b>' + j.url + '</b><br>Następnie wpisz kod (ważny ' + Math.round(j.ttl / 60) + ' min, jednorazowy):<div class="carcode">' + j.code.slice(0,3) + ' ' + j.code.slice(3) + '</div>Po połączeniu dodaj stronę do ulubionych (gwiazdka).</div>';
+  } catch (e) { box.innerHTML = '<div class="hint err">Błąd połączenia</div>'; }
+  finally { setTimeout(() => { cp.disabled = false; }, 3000); }
+});
+
 const launchTarget = standalone ? (SOLO || QUICK) : null;
 if (QUICK && !document.getElementById('c-' + QUICK)) {
   history.replaceState(null, '', P + '?app=1');
@@ -545,7 +565,7 @@ if (QUICK && !document.getElementById('c-' + QUICK)) {
     'Ten skrót jest nieaktualny – nie masz już dostępu do tego obiektu. ' + (ios ? '' :
     'Lista skrótów odświeży się sama po kolejnym uruchomieniu aplikacji (Android robi to zwykle raz na dobę). ' +
     'Od razu: odinstaluj aplikację Brama i zainstaluj ponownie z linku.') + '</div>');
-} else if (SOLO && !standalone) {
+} else if (SOLO && !standalone && !CAR) {
   $('#list').insertAdjacentHTML('afterbegin', '<div class="hint" style="margin-bottom:12px">' + (ios
     ? 'Dodaj tę stronę: <b>Udostępnij → Do ekranu początkowego</b>. Dotknięcie ikony od razu otworzy bramę.'
     : 'Dodaj tę stronę: menu ⋮ → <b>Dodaj do ekranu głównego</b>. Dotknięcie ikony od razu otworzy bramę.') + '</div>');
@@ -556,7 +576,7 @@ function onApproved(){
   refresh();
   // One-tap launch: only when started from a home-screen icon / app shortcut (never from a plain link)
   if (launchTarget && document.getElementById('c-' + launchTarget) && !window._launched) { window._launched = true; act(launchTarget, 'open'); }
-  if (!SOLO) pushUi().catch(() => {});
+  if (!SOLO && !CAR) pushUi().catch(() => {});
 }
 if (FOCUS) { const c = document.getElementById('c-' + FOCUS); if (c) { c.classList.add('focus'); c.scrollIntoView(); } }
 setInterval(() => { if (!document.hidden) refresh(); }, 4000);
@@ -566,7 +586,8 @@ checkDevice().catch(e => banner('err', 'Błąd: ' + e.message));
 
 
 def app_page(
-    path: str, person: str, targets: list[dict], vapid_public: str, solo: dict | None = None
+    path: str, person: str, targets: list[dict], vapid_public: str, solo: dict | None = None,
+    car: bool = False,
 ) -> str:
     cards = []
     for t in ([solo] if solo else targets):
@@ -580,7 +601,7 @@ def app_page(
             f"<span class='nm'>{html.escape(t['name'])}</span><span class='st'>—</span></div>"
             f"<div class='btns'><button class='op' data-act='open' data-id='{tid}'>Otwórz</button>"
             f"{close_btn}</div><div class='msg'></div>"
-            + ("" if solo else
+            + ("" if (solo or car) else
                f"<button class='pin' data-pin='{tid}' data-name='{html.escape(t['name'], quote=True)}'>"
                "Ikona na ekran – otwieranie jednym dotknięciem</button>")
             + "</div>"
@@ -604,11 +625,13 @@ def app_page(
         f"<link rel='apple-touch-icon' href='{p}?asset={icon}'>"
         f"<link rel='icon' type='image/png' href='{p}?asset=icon-192'>"
         f"<title>{title}</title><style>{_APP_CSS}</style></head>"
-        f"<body class='{'solo' if solo else ''}'>"
+        f"<body class='{'solo' if solo else ('car' if car else '')}'>"
         f"<h1>{title}</h1><div class='sub'>{html.escape(person)}</div>"
         "<div id='dev'></div>"
         f"<div id='list'>{''.join(cards) or '<div class=card>Brak przypisanych obiektów.</div>'}</div>"
-        "<div class='push' id='push'></div>"
+        + ("" if (solo or car) else
+           "<button class='carpair' id='carpair'>Połącz z samochodem (Tesla)</button><div id='carbox'></div>")
+        + "<div class='push' id='push'></div>"
         f"<script>{js}</script></body></html>"
     )
 
@@ -731,3 +754,100 @@ def verify_action(
         return None, "Nieprawidłowy podpis"
     dev["last_used"] = datetime_iso(_time.time())
     return dev, ""
+
+
+# ---------------------------------------------------------------------------
+# Car pairing (1.9): car browsers (Tesla) cannot paste links. An approved phone
+# asks for a one-time 6-digit code; the car opens the short address
+# /api/webhook/tesla, types the code and gets its own device key, approved
+# automatically because the code was issued by an already approved device.
+# ---------------------------------------------------------------------------
+from .const import CAR_CODE_FAIL_WINDOW, CAR_CODE_MAX_FAIL, CAR_CODE_TTL
+
+
+def issue_car_code(store: dict, webhook_id: str) -> str | None:
+    now = _time.monotonic()
+    for k in [k for k, v in store.items() if v["exp"] < now]:
+        store.pop(k)
+    if sum(1 for v in store.values() if v["wid"] == webhook_id) >= 3:
+        return None
+    while True:
+        code = f"{_secrets.randbelow(1_000_000):06d}"
+        if code not in store:
+            break
+    store[code] = {"wid": webhook_id, "exp": now + CAR_CODE_TTL}
+    return code
+
+
+def car_locked(fails: list) -> bool:
+    now = _time.monotonic()
+    fails[:] = [t for t in fails if t > now - CAR_CODE_FAIL_WINDOW]
+    return len(fails) >= CAR_CODE_MAX_FAIL
+
+
+def redeem_car_code(store: dict, fails: list, code: Any) -> str | None:
+    """Return the person's webhook id for a valid code (single use)."""
+    now = _time.monotonic()
+    if car_locked(fails):
+        return None
+    code = "".join(ch for ch in str(code or "") if ch.isdigit())
+    rec = store.pop(code, None) if len(code) == 6 else None
+    if not rec or rec["exp"] < now:
+        fails.append(now)
+        return None
+    return rec["wid"]
+
+
+_CAR_PAIR_JS = r"""
+const $ = s => document.querySelector(s);
+function b64(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+function idb(){ return new Promise((res, rej) => { const r = indexedDB.open('gate-access', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('keys'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbPut(k, v){ const db = await idb(); return new Promise((res, rej) => {
+  const t = db.transaction('keys', 'readwrite'); t.objectStore('keys').put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
+let code = '';
+function show(){ $('#code').textContent = (code + '______').slice(0, 6).replace(/(...)/, '$1 '); $('#go').disabled = code.length !== 6; }
+document.querySelectorAll('.k').forEach(b => b.addEventListener('click', () => {
+  const v = b.dataset.k; if (v === 'del') code = code.slice(0, -1); else if (code.length < 6) code += v; show(); }));
+$('#go').addEventListener('click', async () => {
+  const m = $('#msg'); $('#go').disabled = true; m.className = 'msg'; m.textContent = 'Łączę…';
+  try {
+    if (!window.crypto || !crypto.subtle || !window.indexedDB) throw new Error('Ta przeglądarka nie obsługuje bezpiecznych kluczy');
+    const kp = await crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, false, ['sign','verify']);
+    const pub = b64(await crypto.subtle.exportKey('spki', kp.publicKey));
+    const r = await fetch(location.pathname + '?do=pair', {method:'POST', cache:'no-store',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({code, pub})});
+    const j = await r.json().catch(() => ({}));
+    if (!j.ok) throw new Error(j.msg || 'Nieprawidłowy kod');
+    await idbPut(j.path, {key: kp.privateKey, pub, dev: j.dev});
+    m.className = 'msg ok'; m.textContent = 'Połączono – ' + j.name;
+    location.replace(j.path + '?app=1&car=1');
+  } catch (e) { m.className = 'msg err'; m.textContent = e.message; code = ''; show(); }
+});
+show();
+"""
+
+
+def car_pair_page() -> str:
+    keys = "".join(
+        f"<button class='k' data-k='{k}'>{k}</button>" for k in "123456789"
+    ) + "<button class='k' data-k='del'>⌫</button><button class='k' data-k='0'>0</button>" \
+        "<button class='k ok' id='go' disabled>Połącz</button>"
+    css = _APP_CSS + (
+        "body{display:flex;flex-direction:column;align-items:center;padding:24px}"
+        ".pad{display:grid;grid-template-columns:repeat(3,120px);gap:12px;margin-top:18px}"
+        ".k{padding:26px 0;font-size:1.8rem;background:#1e2229;color:#e8e6df;border-color:#3a4049}"
+        ".k.ok{background:#c8952f;color:#1a1206;font-size:1.2rem}"
+        "#code{font-size:3rem;letter-spacing:.25em;font-weight:700;color:#ffcf7a;margin-top:8px}"
+        ".msg{text-align:center;font-size:1.1rem}"
+    )
+    return (
+        "<!doctype html><html lang='pl'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<meta name='referrer' content='no-referrer'><meta name='robots' content='noindex,nofollow'>"
+        f"<title>Brama – połącz samochód</title><style>{css}</style></head><body>"
+        "<h1>Połącz samochód</h1>"
+        "<div class='sub'>Na telefonie w aplikacji Brama dotknij „Połącz z samochodem” i wpisz tutaj kod.</div>"
+        f"<div id='code'></div><div class='pad'>{keys}</div><div class='msg' id='msg'></div>"
+        f"<script>{_CAR_PAIR_JS}</script></body></html>"
+    )

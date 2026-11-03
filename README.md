@@ -105,6 +105,17 @@ Link jest kluczem — kto go ma, otwiera (w ramach okna czasowego, limitu użyć
 i limitu prób). Wyłączenie lub usunięcie dostępu w panelu działa natychmiast,
 także dla aplikacji i przypomnień.
 
+## Samochód (Tesla) – od 1.9
+
+1. Na telefonie w aplikacji Brama dotknij **Połącz z samochodem (Tesla)** – pojawi się
+   adres i jednorazowy kod (5 min).
+2. W aucie otwórz przeglądarkę, wpisz adres `twoja-domena/api/webhook/tesla`, na
+   klawiaturze ekranowej wpisz kod i **Połącz**.
+3. Strona przejdzie do widoku samochodowego z dużymi przyciskami – dodaj ją do ulubionych.
+   Samochód jest zapisany jako urządzenie „Tesla · przeglądarka” (do usunięcia w panelu).
+
+Otwieranie zawsze wymaga dotknięcia przycisku; strona nie otwiera bramy sama.
+
 ## Użycie
 
 W menu bocznym pojawia się panel **Brama – dostęp**:

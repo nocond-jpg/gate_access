@@ -58,6 +58,8 @@ from .const import (
     DEFAULT_RATE_LIMIT,
     DEFAULT_SHOW_CLOSE,
     APPROVE_ACTION_PREFIX,
+    CAR_CODE_TTL,
+    CAR_WEBHOOK_ID,
     DOMAIN,
     EVENT_OPENED,
     PANEL_ICON,
@@ -846,8 +848,9 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                         ),
                         content_type="text/html", status=403,
                     )
+            car = request.query.get("car") == "1" or "Tesla" in request.headers.get("User-Agent", "")
             return web.Response(
-                text=gapp.app_page(path, name, tl, data["vapid"]["public"], solo_t),
+                text=gapp.app_page(path, name, tl, data["vapid"]["public"], solo_t, car=car and solo_t is None),
                 content_type="text/html",
                 headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY",
                          "Referrer-Policy": "no-referrer"},
@@ -931,6 +934,32 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
                 gapp.remove_subscription(user, endpoint if isinstance(endpoint, str) else "")
             await _save(hass, entry)
             return web.json_response({"ok": True})
+
+        # Car pairing code (1.9): signed request from an approved device of this person
+        if do == "carcode":
+            if user is None or act != "active" or request.method != "POST":
+                return web.json_response({"ok": False, "msg": "Brak dostępu"}, status=403)
+            try:
+                payload = await request.json()
+            except ValueError:
+                payload = None
+            dev, err = gapp.verify_action(
+                data.setdefault("nonces", {}), user, webhook_id, payload, "carcode", "car"
+            )
+            if dev is None:
+                return web.json_response({"ok": False, "msg": err}, status=403)
+            code = gapp.issue_car_code(data.setdefault("car_codes", {}), webhook_id)
+            if code is None:
+                return web.json_response(
+                    {"ok": False, "msg": "Za dużo aktywnych kodów – odczekaj 5 minut"}, status=429
+                )
+            base = (_cfg(entry, CONF_BASE_URL, "") or "").rstrip("/") or str(request.url.origin())
+            host = base.split("://", 1)[-1]
+            return web.json_response(
+                {"ok": True, "code": code, "ttl": CAR_CODE_TTL,
+                 "url": f"{host}{_app_path(CAR_WEBHOOK_ID)}"},
+                headers={"Cache-Control": "no-store"},
+            )
 
         # A specific opening chosen in the app (?t=<entity_id>) → JSON, signed device only.
         # Plain single links (no ?t=) keep working exactly as before.
@@ -1053,6 +1082,63 @@ def _make_handler(hass: HomeAssistant, entry: ConfigEntry):
         )
 
     return _handler
+
+
+def _make_car_handler(hass: HomeAssistant, entry: ConfigEntry):
+    """Short pairing address for car browsers: GET = keypad, POST ?do=pair = redeem code."""
+
+    async def _handler(hass_: HomeAssistant, webhook_id: str, request: web.Request):
+        data = hass.data[DOMAIN].get(entry.entry_id)
+        if data is None:
+            return web.Response(status=404)
+        sec = {"Cache-Control": "no-store", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"}
+        if request.query.get("do") != "pair":
+            return web.Response(text=gapp.car_pair_page(), content_type="text/html", headers=sec)
+        if request.method != "POST":
+            return web.json_response({"ok": False}, status=405)
+        fails = data.setdefault("car_fails", [])
+        if gapp.car_locked(fails):
+            return web.json_response(
+                {"ok": False, "msg": "Za dużo błędnych prób – spróbuj za 10 minut"}, status=429
+            )
+        try:
+            payload = await request.json()
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            return web.json_response({"ok": False, "msg": "Nieprawidłowe żądanie"}, status=400)
+        wid = gapp.redeem_car_code(data.setdefault("car_codes", {}), fails, payload.get("code"))
+        user = next((u for u in data["users"] if u["webhook_id"] == wid), None) if wid else None
+        if user is None:
+            _LOGGER.warning("Gate Access: błędny kod parowania samochodu")
+            return web.json_response({"ok": False, "msg": "Nieprawidłowy lub wygasły kod"}, status=403)
+        if _activity(user) != "active":
+            return web.json_response({"ok": False, "msg": "Ten dostęp nie jest aktywny"}, status=403)
+        dev, err = gapp.register_device(user, payload.get("pub"), "Tesla · przeglądarka")
+        if dev is None:
+            return web.json_response({"ok": False, "msg": err}, status=400)
+        dev["status"] = "approved"
+        dev["paired"] = "car_code"
+        _add_history(hass, entry, user["name"], wid, "dev_approved", None, "kod samochodu")
+        await _save(hass, entry)
+        return web.json_response(
+            {"ok": True, "path": _app_path(wid), "dev": dev["id"], "name": user["name"]},
+            headers=sec,
+        )
+
+    return _handler
+
+
+@callback
+def _register_car_webhook(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    try:
+        webhook.async_register(
+            hass, DOMAIN, "Brama – parowanie samochodu", CAR_WEBHOOK_ID,
+            _make_car_handler(hass, entry), local_only=False, allowed_methods=["GET", "POST"],
+        )
+    except ValueError:
+        _LOGGER.warning("Gate Access: webhook %s jest już zajęty – parowanie samochodu wyłączone",
+                        CAR_WEBHOOK_ID)
 
 
 @callback
@@ -1773,6 +1859,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     for user in hass.data[DOMAIN][entry.entry_id]["users"]:
         _register_webhook(hass, entry, user)
+    _register_car_webhook(hass, entry)
 
     await _async_register_global(hass)
     await _register_panel(hass, entry)
@@ -1798,4 +1885,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 item["cancel"]()
         for user in data["users"]:
             _unregister_webhook(hass, user["webhook_id"])
+    _unregister_webhook(hass, CAR_WEBHOOK_ID)
     return True

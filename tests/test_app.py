@@ -306,6 +306,7 @@ async def test_shortcuts_and_solo(hass: HomeAssistant, hass_client_no_auth):
     r = await client.get(f"{base}?app=1&solo={WICKET}")
     html = await r.text()
     assert r.status == 200 and "<title>Furtka</title>" in html and "Brama wjazdowa" not in html
+    assert "id='carpair'" not in html
     # visiting quick/solo pages never opens server-side
     await client.get(f"{base}?app=1&quick={GATE}")
     await hass.async_block_till_done()
@@ -358,3 +359,52 @@ async def test_approval_via_notification(hass: HomeAssistant, hass_client_no_aut
     await hass.async_block_till_done()
     r = await client.post(f"{base}?do=devstatus", json={"dev": ph2.dev})
     assert (await r.json())["status"] == "unknown"
+
+
+async def test_car_pairing(hass: HomeAssistant, hass_client_no_auth):
+    entry, calls = await _setup(hass)
+    client = await hass_client_no_auth()
+    user = await async_create_user(hass, entry, "Kuba", target=GATE)
+    user["app_targets"] = [GATE, WICKET]
+    base = f"/api/webhook/{user['webhook_id']}"
+    car_base = "/api/webhook/tesla"
+
+    r = await client.get(car_base)
+    assert r.status == 200 and "Połącz samochód" in await r.text()
+
+    # unapproved / unsigned phone cannot issue a code
+    r = await client.post(f"{base}?do=carcode&t=car", json={})
+    assert r.status == 403
+
+    ph = await _approved_phone(hass, entry, client, base)
+    st, j, _ = await ph.act("carcode", "car")
+    assert st == 200 and j["ok"] and len(j["code"]) == 6 and j["url"].endswith("/api/webhook/tesla")
+    code = j["code"]
+
+    car = Phone(client, car_base)
+    # wrong code
+    r = await client.post(f"{car_base}?do=pair", json={"code": "000000" if code != "000000" else "111111", "pub": car.pub})
+    assert r.status == 403
+    # right code -> device approved automatically, path of the person returned
+    r = await client.post(f"{car_base}?do=pair", json={"code": code, "pub": car.pub})
+    j = await r.json()
+    assert r.status == 200 and j["ok"] and j["path"] == base
+    # single use
+    r = await client.post(f"{car_base}?do=pair", json={"code": code, "pub": car.pub})
+    assert r.status == 403
+
+    car.base, car.dev = base, j["dev"]
+    st, j2, _ = await car.act("open", GATE)
+    await hass.async_block_till_done()
+    assert st == 200 and j2["ok"] and ("cover", "open_cover", GATE) in calls
+
+    # car mode page: no install/pin/push UI
+    r = await client.get(f"{base}?app=1&car=1")
+    html = await r.text()
+    assert "class='car'" in html and "class='pin'" not in html and "id='carpair'" not in html
+
+    # brute force lock
+    for _ in range(12):
+        await client.post(f"{car_base}?do=pair", json={"code": "123456", "pub": car.pub})
+    r = await client.post(f"{car_base}?do=pair", json={"code": "123456", "pub": car.pub})
+    assert r.status == 429
