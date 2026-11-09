@@ -555,7 +555,8 @@ async function bleAct(id, action){
   let gatt = null;
   try {
     if (!DEV || !DEV.dev || !DEV.key) throw new Error('Ten telefon nie jest jeszcze zatwierdzony');
-    const d = await navigator.bluetooth.requestDevice({filters: [{services: [BLE_S]}]});
+    // Filtr po usłudze ORAZ po nazwie: część telefonów nie widzi 128-bit UUID w reklamie.
+    const d = await navigator.bluetooth.requestDevice({filters: [{services: [BLE_S]}, {namePrefix: 'brama'}, {namePrefix: 'Brama'}], optionalServices: [BLE_S]});
     msg.textContent = 'Łączę przez Bluetooth…';
     gatt = await d.gatt.connect();
     const svc = await gatt.getPrimaryService(BLE_S);
@@ -568,6 +569,7 @@ async function bleAct(id, action){
     msg.className = 'msg err';
     msg.textContent = e.name === 'NotFoundError' ? 'Anulowano wybór urządzenia'
       : e.name === 'NetworkError' ? 'Nie udało się połączyć – podejdź bliżej bramy i spróbuj ponownie'
+      : e.name === 'NotAllowedError' ? 'Chrome nie ma dostępu do Bluetooth – włącz Bluetooth, lokalizację i uprawnienie „Urządzenia w pobliżu” dla Chrome'
       : e.name === 'SecurityError' ? 'Bluetooth zablokowany przez przeglądarkę'
       : (e.message || 'Błąd Bluetooth');
   } finally {

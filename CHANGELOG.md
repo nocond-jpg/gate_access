@@ -4,6 +4,13 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [2.0.1] - 2026-11-09
+
+### Poprawione
+- Bluetooth: wyszukiwanie bramy także po nazwie („brama”), nie tylko po UUID usługi – część
+  telefonów nie pokazywała sterownika na liście Chrome. Czytelny komunikat, gdy Chrome nie ma
+  uprawnień do Bluetooth.
+
 ## [2.0.0] - 2026-11-09
 
 ### Dodane
