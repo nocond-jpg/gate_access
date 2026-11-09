@@ -4,6 +4,14 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [2.0.2] - 2026-11-09
+
+### Dodane
+- Otwarcia/zamknięcia przez Bluetooth trafiają do historii i logu (źródło „Bluetooth”, osoba
+  wg urządzenia). ESP wysyła zdarzenie `esphome.gate_access_ble`; gdy HA nie działa, sterownik
+  trzyma do 20 zdarzeń i wysyła je po połączeniu – z czasem otwarcia.
+  Wymaga w integracji ESPHome dla sterownika opcji „Allow the device to perform Home Assistant actions”.
+
 ## [2.0.1] - 2026-11-09
 
 ### Poprawione

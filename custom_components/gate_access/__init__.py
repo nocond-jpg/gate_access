@@ -510,6 +510,7 @@ def _add_history(
     status: str,
     target: str | None,
     source: str = "link",
+    when=None,
 ) -> None:
     hist = hass.data[DOMAIN][entry.entry_id]["history"]
     hist.insert(
@@ -518,7 +519,7 @@ def _add_history(
             "id": secrets.token_hex(6),
             "name": name,
             "webhook_id": webhook_id,
-            "ts": dt_util.utcnow().isoformat(timespec="seconds"),
+            "ts": (when or dt_util.utcnow()).isoformat(timespec="seconds"),
             "status": status,  # "opened" | "expired" | "closed"
             "target": target,
             "source": source,  # link | panel | ha | auto | <custom>
@@ -588,6 +589,7 @@ async def _record(
     source: str,
     status: str = "opened",
     webhook_id: str | None = None,
+    when=None,
 ) -> str:
     """Log + history + event + stats for an open/close (does not actuate)."""
     tname = _target_name(hass, target)
@@ -609,7 +611,7 @@ async def _record(
             "status": status,
         },
     )
-    _add_history(hass, entry, name, webhook_id, status, target, source)
+    _add_history(hass, entry, name, webhook_id, status, target, source, when)
     if status == "opened" and target:
         _bump_stats(hass, entry, target)
     await _save(hass, entry)
@@ -1947,6 +1949,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async_track_time_interval(hass, _ble_tick, timedelta(seconds=BLE_SYNC_INTERVAL))
     )
     _schedule_ble_sync(hass, entry, delay=30)   # after ESPHome devices have connected
+
+    async def _ble_event(event) -> None:
+        """Opening over Bluetooth reported by the ESP (also replayed after HA was down)."""
+        d = event.data or {}
+        dev = str(d.get("dev") or "")
+        if not dev:
+            return
+        node = str(d.get("node") or "")
+        bmap = _ble_map(entry)
+        target = next((t for t, svc in bmap.items() if gble.service_name(svc) == f"{node}_ble_klucze"), None)
+        if target is None and len(bmap) == 1:
+            target = next(iter(bmap))
+        name, wid = f"urządzenie {dev}", None
+        for user in hass.data[DOMAIN][entry.entry_id]["users"]:
+            dv = next((x for x in user.get("devices", []) if x.get("id") == dev), None)
+            if dv:
+                name, wid = user.get("name", name), user.get("webhook_id")
+                dv["last_used"] = dt_util.utcnow().isoformat(timespec="seconds")
+                break
+        try:
+            ts = int(float(d.get("ts") or 0))
+        except (TypeError, ValueError):
+            ts = 0
+        when = dt_util.utc_from_timestamp(ts) if ts > 1_600_000_000 else None
+        status = "closed" if d.get("action") == "close" else "opened"
+        await _record(hass, entry, name, target, "bluetooth", status, wid, when)
+
+    entry.async_on_unload(hass.bus.async_listen("esphome.gate_access_ble", _ble_event))
 
     async def _ble_service(call: ServiceCall) -> None:
         await _ble_sync(hass, entry, force=True)

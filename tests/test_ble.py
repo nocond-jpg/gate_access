@@ -122,3 +122,16 @@ def test_service_name():
     assert gble.service_name("esphome.brama_ble_klucze") == "brama_ble_klucze"
     assert gble.service_name("brama ble") is None
     assert gble.service_name("") is None
+
+
+async def test_ble_event_goes_to_history(hass: HomeAssistant, hass_client_no_auth):
+    entry, _ = await _ble_setup(hass)
+    client = await hass_client_no_auth()
+    owner = await async_create_user(hass, entry, "Dawid", target=GATE)
+    ph = await _approved_phone(hass, entry, client, f"/api/webhook/{owner['webhook_id']}")
+    hass.bus.async_fire("esphome.gate_access_ble", {"node": "brama", "dev": ph.dev, "action": "open", "ts": "1794250000"})
+    await hass.async_block_till_done()
+    from custom_components.gate_access.const import DOMAIN
+    h = hass.data[DOMAIN][entry.entry_id]["history"][0]
+    assert h["name"] == "Dawid" and h["source"] == "bluetooth" and h["status"] == "opened"
+    assert h["target"] == GATE and h["ts"].startswith("2026-11-")

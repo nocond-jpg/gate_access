@@ -659,7 +659,7 @@ class GateAccessPanel extends HTMLElement {
   }
 
   _sourceLabel(s) {
-    const map = { link: "link", app: "aplikacja", admin: "administrator", panel: "panel", ha: "HA", pilot: "pilot", auto: "automat", "usługa": "usługa" };
+    const map = { link: "link", app: "aplikacja", admin: "administrator", panel: "panel", ha: "HA", pilot: "pilot", auto: "automat", "usługa": "usługa", bluetooth: "Bluetooth" };
     return map[s] || s || "—";
   }
 
