@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstring>
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -65,6 +66,7 @@ static uint32_t locked_until_ = 0;
 static std::string result_ = "GOTOWY";
 static std::string last_dev_;
 static std::string last_action_;
+static uint32_t last_ts_ = 0;
 
 inline void load() {
   pref_ = esphome::global_preferences->make_preference<Store>(0xB1E5A002u);
@@ -230,8 +232,24 @@ inline int on_chunk(const std::vector<uint8_t> &x, uint32_t now_ts, bool enabled
   result_ = "OK";
   last_dev_ = dev;
   last_action_ = act;
+  last_ts_ = now_ts;
   ESP_LOGI(TAG, "Polecenie BLE %s od urządzenia %s", act, dev.c_str());
   return action;
 }
+
+// --- Kolejka zdarzeń do historii HA (2026-11-09) ---------------------------------------
+// Otwarcia przez BLE trafiają do historii Gate Access zdarzeniem esphome.gate_access_ble.
+// Bez HA zdarzenia czekają w kolejce (maks. 20, w RAM) i są wysyłane po połączeniu API.
+struct Ev { std::string dev; std::string action; uint32_t ts; };
+static std::deque<Ev> events_;
+inline void push_event() {
+  if (events_.size() >= 20) events_.pop_front();
+  events_.push_back({last_dev_, last_action_, last_ts_});
+}
+inline bool has_event() { return !events_.empty(); }
+inline std::string ev_dev() { return events_.empty() ? std::string() : events_.front().dev; }
+inline std::string ev_action() { return events_.empty() ? std::string() : events_.front().action; }
+inline std::string ev_ts() { return events_.empty() ? std::string("0") : std::to_string(events_.front().ts); }
+inline void pop_event() { if (!events_.empty()) events_.pop_front(); }
 
 }  // namespace brama_ble
