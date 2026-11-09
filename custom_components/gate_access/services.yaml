@@ -32,3 +32,8 @@ log_open:
             - input_button
             - script
             - light
+sync_ble_keys:
+  name: Wyślij klucze Bluetooth
+  description: >-
+    Natychmiast wysyła do sterowników ESPHome listę kluczy publicznych zatwierdzonych
+    telefonów (awaryjne otwieranie przez Bluetooth). Zwykle dzieje się to automatycznie.

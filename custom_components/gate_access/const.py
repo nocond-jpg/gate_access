@@ -19,6 +19,7 @@ CONF_RATE_LIMIT = "rate_limit"    # max opens per link per minute (0 = off)
 CONF_STATE_MAP = "state_map"      # per-target state entity (contact sensor etc.)
 CONF_REMIND_MAP = "remind_map"    # per-target reminder minutes (0 = off)
 CONF_APPROVE_NOTIFY = "approve_notify"  # notify service for new-device approvals
+CONF_BLE_MAP = "ble_map"          # per-target ESPHome action receiving BLE keys (2.0)
 
 DEFAULT_LOG_PATH = "/config/otwarcie_bramy.txt"
 DEFAULT_CLOSE_AFTER = 0
@@ -51,6 +52,7 @@ CAR_CODE_TTL = 300                 # pairing code lifetime (s)
 CAR_CODE_MAX_FAIL = 10             # failed code attempts per CAR_CODE_FAIL_WINDOW before lock
 CAR_CODE_FAIL_WINDOW = 600
 APPROVE_ACTION_PREFIX = "GATE_ACCESS_"
+BLE_SYNC_INTERVAL = 300            # s between BLE key checks
 
 STATE_DOMAINS = ["binary_sensor", "cover", "lock", "switch", "input_boolean"]
 

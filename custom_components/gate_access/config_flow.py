@@ -16,6 +16,7 @@ from .const import (
     CONF_ADMIN_ONLY,
     CONF_APPROVE_NOTIFY,
     CONF_BASE_URL,
+    CONF_BLE_MAP,
     CONF_CLOSE_AFTER,
     CONF_CLOSE_MAP,
     CONF_CONFIRM_OPEN,
@@ -182,6 +183,7 @@ class GateAccessOptionsFlow(OptionsFlow):
             CONF_STATE_MAP: cur.get(CONF_STATE_MAP, {}) or {},
             CONF_REMIND_MAP: cur.get(CONF_REMIND_MAP, {}) or {},
             CONF_APPROVE_NOTIFY: cur.get(CONF_APPROVE_NOTIFY, "") or "",
+            CONF_BLE_MAP: cur.get(CONF_BLE_MAP, {}) or {},
         }
         data.update(updates)
         if data.get(CONF_BASE_URL):
@@ -215,7 +217,9 @@ class GateAccessOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["targets", "autoclose", "reminders", "devices", "logging", "sharing"],
+            menu_options=[
+                "targets", "autoclose", "reminders", "devices", "bluetooth", "logging", "sharing",
+            ],
         )
 
     async def async_step_autoclose(self, user_input=None) -> ConfigFlowResult:
@@ -296,6 +300,44 @@ class GateAccessOptionsFlow(OptionsFlow):
                 }
             ),
             errors=errors,
+        )
+
+    async def async_step_bluetooth(self, user_input=None) -> ConfigFlowResult:
+        """Per target: ESPHome action (…_ble_klucze) that receives the BLE key list."""
+        cur = self._current()
+        targets = _targets_of(cur)
+        errors = {}
+        if user_input is not None:
+            bmap = {}
+            for eid in targets:
+                raw = (user_input.get(f"ble__{eid}") or "").strip()
+                if not raw:
+                    continue
+                name = raw[len("esphome."):] if raw.startswith("esphome.") else raw
+                if not name or not all(c.isalnum() or c == "_" for c in name):
+                    errors[f"ble__{eid}"] = "ble_service"
+                    continue
+                bmap[eid] = name
+            if not errors:
+                return self._save({CONF_BLE_MAP: bmap})
+        bmap = cur.get(CONF_BLE_MAP, {}) or {}
+        found = sorted(
+            s for s in self.hass.services.async_services_for_domain("esphome")
+            if s.endswith("ble_klucze")
+        )
+        options = sorted(set(found) | {v for v in bmap.values() if v})
+        sel = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=options, custom_value=True, mode=selector.SelectSelectorMode.DROPDOWN
+            )
+        )
+        fields: dict = {}
+        for eid in targets:
+            fields[
+                vol.Optional(f"ble__{eid}", description={"suggested_value": bmap.get(eid)})
+            ] = sel
+        return self.async_show_form(
+            step_id="bluetooth", data_schema=vol.Schema(fields), errors=errors
         )
 
     async def async_step_logging(self, user_input=None) -> ConfigFlowResult:

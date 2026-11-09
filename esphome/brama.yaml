@@ -1,0 +1,281 @@
+# Board: WT32-ETH01 (Wireless-Tag)
+# Brama wjazdowa – sterownik (2026-10-29, BLE awaryjne 2026-11-09)
+#
+# Sekwencja „ruch bramy”:
+#   1. przekaźnik zasilania odcina zasilanie bramy (PoE) na 60 s – napęd pracuje z akumulatora
+#   2. po 1 s impuls 500 ms na wejście sterujące bramy
+#   3. po 60 s zasilanie wraca (ponowny ruch w tym czasie wydłuża odcięcie od nowa)
+#
+# PINY:
+#   Przekaźnik sterujący bramą  -> GPIO33
+#   Przekaźnik zasilania bramy  -> GPIO14
+#   Kontaktron (brama zamknięta) -> GPIO4
+#
+# Bluetooth (awaryjnie, gdy nie działa sieć / Home Assistant):
+#   Aplikacja Gate Access (Android, Chrome) łączy się z ESP przez BLE i wysyła polecenie podpisane
+#   kluczem zatwierdzonego telefonu. ESP zna tylko klucze PUBLICZNE – wgrywa je Home Assistant
+#   (akcja `ble_klucze`, wywoływana automatycznie przez integrację Gate Access).
+#   Weryfikacja w komponencie brama_ble: jednorazowy nonce, podpis ECDSA P-256, okno ważności dostępu,
+#   blokada po 5 błędach. Przełącznik „Bluetooth – otwieranie” wyłącza obsługę BLE.
+
+substitutions:
+  czas_odciecia: 60s
+  opoznienie_impulsu: 1s
+  dlugosc_impulsu: 500ms
+
+esphome:
+  name: brama
+  friendly_name: Brama
+  on_boot:
+    priority: 600
+    then:
+      - lambda: brama_ble::load();
+
+# Komponent brama_ble (nagłówek z weryfikacją ECDSA): repozytorium Gate Access, gałąź esphome
+external_components:
+  - source: github://nocond-jpg/gate_access@esphome
+    components: [brama_ble]
+    refresh: 0s
+
+brama_ble:
+
+esp32:
+  variant: esp32
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+api:
+  encryption:
+    key: !secret brama_api_key
+  actions:
+    # Wywołuje Home Assistant (Gate Access): lista kluczy publicznych telefonów
+    - action: ble_klucze
+      variables:
+        klucze: string
+      then:
+        - lambda: |-
+            id(ble_liczba_kluczy).publish_state(brama_ble::set_keys(klucze));
+            id(ble_wersja_kluczy).publish_state(brama_ble::version());
+
+ota:
+  - platform: esphome
+
+ethernet:
+  clk:
+    mode: CLK_EXT_IN
+    pin: GPIO0
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  phy_addr: 1
+  power_pin: GPIO16
+  type: LAN8720
+
+logger:
+  level: INFO
+  baud_rate: 0
+
+web_server:
+  port: 80
+  version: 3
+#  auth:                            # zalecane – sterowanie bramą bez hasła w LAN
+#    username: !secret web_username
+#    password: !secret web_password
+
+# Zegar do sprawdzania okien ważności dostępu (z HA, zapasowo z internetu)
+time:
+  - platform: homeassistant
+    id: czas_ha
+  - platform: sntp
+    id: czas_sntp
+
+esp32_ble:
+  id: ble
+
+esp32_ble_server:
+  id: ble_serwer
+  manufacturer: "Gate Access"
+  model: "Brama BLE"
+  on_connect:
+    - script.execute: ble_nowe_polaczenie
+  services:
+    - uuid: d38d0001-7e51-45b5-9f87-ae96680dcaf6
+      advertise: true
+      characteristics:
+        # Jednorazowy nonce (16 B) – nowy przy każdym połączeniu i po każdym poleceniu
+        - id: ble_nonce
+          uuid: d38d0002-7e51-45b5-9f87-ae96680dcaf6
+          read: true
+          value: [0]
+        # Polecenie w kawałkach: [nr][liczba][≤18 B]
+        - id: ble_polecenie
+          uuid: d38d0003-7e51-45b5-9f87-ae96680dcaf6
+          write: true
+          on_write:
+            then:
+              - lambda: |-
+                  uint32_t ts = 0;
+                  auto t1 = id(czas_ha).now();
+                  auto t2 = id(czas_sntp).now();
+                  if (t1.is_valid()) ts = t1.timestamp; else if (t2.is_valid()) ts = t2.timestamp;
+                  id(ble_kod) = brama_ble::on_chunk(x, ts, id(ble_aktywne).state);
+              - if:
+                  condition:
+                    lambda: return id(ble_kod) != 0;
+                  then:
+                    - script.execute: ble_po_poleceniu
+        # Wynik ostatniego polecenia: OK / NONCE / NIEZNANE / ZLY_PODPIS / WYGASLO / BLOKADA / …
+        - id: ble_wynik
+          uuid: d38d0004-7e51-45b5-9f87-ae96680dcaf6
+          read: true
+          value: "GOTOWY"
+
+sensor:
+  - platform: template
+    id: ble_liczba_kluczy
+    name: "Bluetooth – liczba kluczy"
+    icon: mdi:key-chain
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    lambda: return brama_ble::key_count();
+    update_interval: 1h
+
+text_sensor:
+  - platform: template
+    id: ble_wersja_kluczy
+    name: "Bluetooth – wersja kluczy"
+    icon: mdi:key-chain-variant
+    entity_category: diagnostic
+    lambda: return brama_ble::version();
+    update_interval: 1h
+  - platform: template
+    id: ble_zdarzenie
+    name: "Bluetooth – ostatnie zdarzenie"
+    icon: mdi:bluetooth-audio
+
+switch:
+  # Przekaźnik sterujący bramą (impuls) – tylko wewnętrznie, sterowanie przez skrypt
+  - platform: gpio
+    pin: GPIO33
+    id: przekaznik_bramy
+    name: "Przekaźnik sterujący"
+    internal: true
+    restore_mode: ALWAYS_OFF
+    inverted: true
+
+  # Przekaźnik odcinający zasilanie bramy (PoE) na czas ruchu
+  - platform: gpio
+    pin: GPIO14
+    id: przekaznik_zasilania
+    name: "Odcięcie zasilania bramy"
+    icon: mdi:power-plug-off
+    restore_mode: ALWAYS_OFF
+    inverted: true
+
+  # Wyłącznik awaryjnego otwierania przez Bluetooth
+  - platform: template
+    id: ble_aktywne
+    name: "Bluetooth – otwieranie"
+    icon: mdi:bluetooth-connect
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+binary_sensor:
+  # Kontaktron GPIO4 <-> 3V3, pulldown, bez inwersji: ON = styk zwarty = brama otwarta,
+  # OFF = styk rozwarty = brama zamknieta (sprawdzone: przy zamknietej bramie styk jest rozwarty).
+  # Nazwa encji bez zmian, zeby nie zmienic entity_id.
+  - platform: gpio
+    pin:
+      number: GPIO4
+      mode:
+        input: true
+        pulldown: true
+      inverted: false
+    id: kontaktron_bramy
+    name: "Brama zamknieta"
+    device_class: opening
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 500ms
+
+globals:
+  # Wynik ostatniego kawałka polecenia: 0 czeka, -1 odrzucone, 1 otwórz, 2 zamknij
+  - id: ble_kod
+    type: int
+    initial_value: "0"
+
+script:
+  # Nowe połączenie BLE: świeży nonce
+  - id: ble_nowe_polaczenie
+    mode: queued
+    then:
+      - lambda: |-
+          id(ble_nonce).set_value(brama_ble::new_nonce());
+          id(ble_wynik).set_value(std::string("GOTOWY"));
+
+  # Po kompletnym poleceniu: wynik, nowy nonce, ewentualnie ruch bramy
+  - id: ble_po_poleceniu
+    mode: queued
+    then:
+      - lambda: |-
+          int r = id(ble_kod);
+          id(ble_wynik).set_value(brama_ble::result());
+          id(ble_nonce).set_value(brama_ble::new_nonce());
+          if (r > 0) {
+            auto call = id(brama_wjazdowa).make_call();
+            if (r == 1) call.set_command_open(); else call.set_command_close();
+            call.perform();
+            id(ble_zdarzenie).publish_state(brama_ble::last_dev() + " " + brama_ble::last_action() + " OK");
+          } else {
+            id(ble_zdarzenie).publish_state("odrzucono: " + brama_ble::result());
+          }
+
+  # Odcięcie zasilania na czas_odciecia; ponowne wywołanie liczy czas od nowa
+  - id: odciecie_zasilania
+    mode: restart
+    then:
+      - switch.turn_on: przekaznik_zasilania
+      - delay: ${czas_odciecia}
+      - switch.turn_off: przekaznik_zasilania
+
+  # Pełna sekwencja: odcięcie zasilania -> impuls na bramę
+  - id: ruch_bramy
+    mode: single
+    then:
+      - script.execute: odciecie_zasilania
+      - delay: ${opoznienie_impulsu}
+      - switch.turn_on: przekaznik_bramy
+      - delay: ${dlugosc_impulsu}
+      - switch.turn_off: przekaznik_bramy
+      - delay: 2s      # blokada ponownego impulsu
+
+button:
+  - platform: template
+    name: "Impuls bramy"
+    icon: mdi:gate
+    on_press:
+      - script.execute: ruch_bramy
+
+cover:
+  # Brama jednoprzyciskowa: otwórz/zamknij dają ten sam impuls, ale tylko gdy ma to sens
+  - platform: template
+    name: "Brama wjazdowa"
+    id: brama_wjazdowa
+    device_class: gate
+    lambda: |-
+      return id(kontaktron_bramy).state ? COVER_OPEN : COVER_CLOSED;
+    open_action:
+      - if:
+          condition:
+            binary_sensor.is_off: kontaktron_bramy
+          then:
+            - script.execute: ruch_bramy
+    close_action:
+      - if:
+          condition:
+            binary_sensor.is_on: kontaktron_bramy
+          then:
+            - script.execute: ruch_bramy
+    stop_action:
+      - script.execute: ruch_bramy

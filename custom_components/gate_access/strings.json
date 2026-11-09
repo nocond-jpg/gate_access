@@ -30,7 +30,8 @@
           "logging": "Rejestr i statystyki",
           "autoclose": "Auto-zamykanie i przycisk",
           "reminders": "Stan bram i przypomnienia (aplikacja)",
-          "devices": "Urządzenia aplikacji (zatwierdzanie)"
+          "devices": "Urządzenia aplikacji (zatwierdzanie)",
+          "bluetooth": "Bluetooth – awaryjne otwieranie (ESPHome)"
         }
       },
       "targets": {
@@ -79,11 +80,17 @@
         "data": {
           "approve_notify": "Usługa powiadomień do zatwierdzania (notify.…)"
         }
+      },
+      "bluetooth": {
+        "title": "Bluetooth – awaryjne otwieranie",
+        "description": "Dla obiektu sterowanego przez ESPHome z komponentem brama_ble wybierz akcję ESPHome przyjmującą klucze (np. `brama_ble_klucze`). Integracja wysyła do ESP tylko klucze PUBLICZNE zatwierdzonych telefonów osób z dostępem stałym lub czasowym (bez linków z limitem użyć). Aplikacja na Androidzie (Chrome) otworzy wtedy bramę przez Bluetooth, gdy nie ma sieci albo Home Assistant nie działa. Puste = Bluetooth wyłączony dla obiektu.",
+        "data": {}
       }
     },
     "error": {
       "no_targets": "Wybierz co najmniej jeden obiekt.",
-      "notify": "Musi zaczynać się od notify."
+      "notify": "Musi zaczynać się od notify.",
+      "ble_service": "Podaj nazwę akcji ESPHome, np. brama_ble_klucze."
     }
   }
 }

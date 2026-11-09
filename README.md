@@ -117,6 +117,42 @@ także dla aplikacji i przypomnień.
 Adres parowania działa tylko przez 5 minut od wygenerowania kodu (do jego użycia).
 Otwieranie zawsze wymaga dotknięcia przycisku; strona nie otwiera bramy sama.
 
+## Bluetooth – awaryjne otwieranie bez sieci (od 2.0, Android)
+
+Gdy telefon nie ma zasięgu sieci domowej albo Home Assistant nie działa, aplikacja Brama
+(Chrome na Androidzie) steruje bramą bezpośrednio przez Bluetooth LE ze sterownikiem ESPHome.
+
+**Sterownik:** komponent `brama_ble` z gałęzi `esphome` tego repozytorium
+(`external_components: github://nocond-jpg/gate_access@esphome`) i usługa GATT
+`d38d0001-7e51-45b5-9f87-ae96680dcaf6` – przykład w `esphome/brama.yaml`.
+
+**Konfiguracja:** Ustawienia → Gate Access → **Bluetooth – awaryjne otwieranie** → przy
+obiekcie wybierz akcję ESPHome (np. `brama_ble_klucze`). Integracja sama wysyła klucze
+po każdej zmianie (osoby, urządzenia, wygaśnięcie – sprawdzane co 5 min) i co 6 h;
+ręcznie: usługa `gate_access.sync_ble_keys`.
+
+**Użycie:** aplikację trzeba raz otworzyć przy działającym domu (zapisuje się wtedy do
+pracy bez sieci). Bez połączenia z domem pojawia się przycisk **Otwórz przez Bluetooth**;
+Chrome pokaże listę urządzeń – wybierz bramę. Przy działającym domu przycisk Bluetooth
+też jest dostępny.
+
+**Zabezpieczenia:**
+- ESP zna tylko klucze **publiczne** zatwierdzonych telefonów – z pamięci sterownika nie
+  da się wydobyć niczego, co otwiera bramę. Klucz prywatny jest nieeksportowalny (telefon).
+- Każde polecenie jest podpisane (ECDSA P-256) na jednorazowym, losowym nonce ze
+  sterownika, ważnym 30 s – nagranie i odtworzenie transmisji nic nie da.
+- Klucze dostają tylko zatwierdzone urządzenia osób włączonych, z dostępem stałym
+  lub czasowym, do tego obiektu. Linki z limitem użyć nie działają przez Bluetooth
+  (licznika nie da się pilnować bez HA).
+- Dostęp czasowy jest sprawdzany na sterowniku; gdy sterownik nie zna godziny
+  (restart bez HA i internetu), dostęp czasowy przez Bluetooth jest odrzucany.
+- 5 błędnych prób w 10 min → blokada Bluetooth na 10 min. Przełącznik
+  „Bluetooth – otwieranie” w ESPHome wyłącza tę drogę całkowicie.
+- Usunięcie osoby/urządzenia zabiera klucz przy najbliższej synchronizacji – jeśli
+  sterownik jest wtedy niedostępny, do czasu ponownego połączenia z HA stary klucz działa.
+
+iPhone (Safari) nie obsługuje Web Bluetooth – tam działa tylko sterowanie przez sieć.
+
 ## Użycie
 
 W menu bocznym pojawia się panel **Brama – dostęp**:

@@ -328,6 +328,30 @@ def manifest(path: str, person: str, targets: list[dict], solo: dict | None = No
 
 
 SERVICE_WORKER = """
+// 2.0: the app page and icons are cached so the app opens without network / with HA down
+// (then only Bluetooth control works). Network first; cache only on failure or 5xx.
+const CACHE = 'gate-app-v2';
+self.addEventListener('fetch', e => {
+  const r = e.request;
+  if (r.method !== 'GET') return;
+  const u = new URL(r.url);
+  const asset = u.searchParams.get('asset');
+  const page = r.mode === 'navigate' && u.searchParams.get('app') === '1';
+  if (!page && !(asset && asset !== 'sw')) return;
+  e.respondWith((async () => {
+    const c = await caches.open(CACHE);
+    const fallback = async () => (await c.match(r)) || (page ? await c.match(u.origin + u.pathname + '?app=1') : undefined);
+    try {
+      const res = await fetch(r, {cache: 'no-store'});
+      if (res.ok && (res.headers.get('content-type') || '').match(/html|png|json|svg|image/)) { c.put(r, res.clone()); return res; }
+      if (res.status >= 500) { const hit = await fallback(); if (hit) return hit; }
+      return res;
+    } catch (err) {
+      const hit = await fallback(); if (hit) return hit;
+      throw err;
+    }
+  })());
+});
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', e => {
@@ -387,6 +411,9 @@ button.carpair{margin-top:18px;background:transparent;color:#e8b45a;width:100%}
  font-weight:500;padding:6px;text-decoration:underline}
 body.solo .card{padding:22px}body.solo button.op{padding:34px 10px;font-size:1.4rem}
 .quick{font-size:1.05rem;text-align:center;margin:6px 0 14px;color:#e8b45a}
+.bt{display:flex;gap:10px;margin-top:10px}.bt[hidden]{display:none}
+.bt button{background:transparent;color:#8fb8ff;border-color:#3b5f99;padding:12px 8px;font-size:.95rem}
+body.offline .btns{display:none}body.offline .bt button{padding:22px 8px;font-size:1.15rem}
 """
 
 _APP_JS = r"""
@@ -397,7 +424,8 @@ const CAR = Q.get('car') === '1' || /Tesla/.test(navigator.userAgent);
 const $ = s => document.querySelector(s);
 const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-let busy = {}, DEV = null, STATUS = 'unknown';
+let busy = {}, DEV = null, STATUS = 'unknown', OFFLINE = false;
+const HAS_BT = !!(navigator.bluetooth && navigator.bluetooth.requestDevice);
 
 function label(v){ return v === true ? ['Otwarta','open'] : v === false ? ['Zamknięta','closed'] : ['—','']; }
 async function api(q, opt){
@@ -438,7 +466,12 @@ async function register(rec){
 async function checkDevice(){
   if (!window.crypto || !crypto.subtle || !window.indexedDB) { banner('err', 'Ta przeglądarka nie obsługuje bezpiecznych kluczy.'); return; }
   DEV = await loadDevice();
-  let j = DEV.dev ? await api('?do=devstatus', {json: {dev: DEV.dev}}) : {status: 'unknown'};
+  let j;
+  try { j = DEV.dev ? await api('?do=devstatus', {json: {dev: DEV.dev}}) : await register(DEV); }
+  catch (e) { j = {_status: 0}; }
+  if (!j._status || j._status >= 500) { goOffline(); return; }
+  if (OFFLINE) goOnline();
+  if (!DEV.dev && !j.ok) { banner('err', j.msg || 'Nie udało się zarejestrować urządzenia.'); return; }
   if (j.status === 'unknown') {
     if (DEV.dev) { banner('err', 'To urządzenie zostało usunięte z listy dozwolonych.', true); setStatus('removed'); return; }
     j = await register(DEV);
@@ -449,6 +482,7 @@ async function checkDevice(){
 function setStatus(st){
   const was = STATUS; STATUS = st;
   document.querySelectorAll('[data-act]').forEach(b => b.disabled = st !== 'approved');
+  showBt(st === 'approved');
   if (st === 'approved') { banner(); if (was !== 'approved') onApproved(); }
   else if (st === 'pending') { banner('wait', 'To urządzenie czeka na zatwierdzenie przez administratora. Strona odświeży się sama.'); setTimeout(pollStatus, 5000); }
 }
@@ -469,6 +503,77 @@ async function signed(action, target){
   const msg = ['v1', WID, DEV.dev, c.nonce, action, target].join('|');
   const sig = await crypto.subtle.sign({name:'ECDSA', hash:'SHA-256'}, DEV.key, new TextEncoder().encode(msg));
   return api('?do=' + action + '&t=' + encodeURIComponent(target), {json: {dev: DEV.dev, nonce: c.nonce, sig: b64(sig)}});
+}
+
+// ---- Bluetooth (2.0): emergency control straight to the ESP, no network/HA needed --------
+// The ESP issues a one-time nonce; the phone signs "ble1|dev|nonce|action" with its device key.
+const BLE_S = 'd38d0001-7e51-45b5-9f87-ae96680dcaf6', BLE_C = n => 'd38d000' + n + '-7e51-45b5-9f87-ae96680dcaf6';
+const BLE_MSG = {OK: 'Wykonano', NONCE: 'Nie zdążyło – spróbuj jeszcze raz',
+  NIEZNANE: 'Brama nie zna tego telefonu. Gdy będziesz w zasięgu domu, otwórz raz aplikację – klucze wgrają się same.',
+  ZLY_PODPIS: 'Odrzucono (zły podpis)', WYGASLO: 'Twój dostęp wygasł', POZA_OKNEM: 'Twój dostęp jeszcze się nie zaczął',
+  BRAK_CZASU: 'Brama nie zna aktualnej godziny – dostęp czasowy nie działa teraz przez Bluetooth',
+  BLOKADA: 'Za dużo błędnych prób – odczekaj 10 minut', FORMAT: 'Błąd transmisji – spróbuj jeszcze raz',
+  WYLACZONE: 'Otwieranie przez Bluetooth jest wyłączone w sterowniku'};
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const bytes = v => new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+function showBt(on){ document.querySelectorAll('.bt').forEach(r => r.hidden = !(HAS_BT && on)); }
+function goOffline(){
+  OFFLINE = true; document.body.classList.add('offline');
+  if (DEV && DEV.dev && HAS_BT && document.querySelector('.bt')) {
+    banner('wait', 'Brak połączenia z domem. Możesz sterować przez <b>Bluetooth</b> – podejdź do bramy.'); showBt(true);
+  } else if (DEV && DEV.dev && document.querySelector('.bt')) {
+    banner('err', 'Brak połączenia z domem. Bluetooth wymaga Chrome na Androidzie.');
+  } else banner('err', 'Brak połączenia z domem.');
+  clearTimeout(window._retry); window._retry = setTimeout(() => checkDevice().catch(() => {}), 15000);
+}
+function goOnline(){ OFFLINE = false; document.body.classList.remove('offline'); banner(); }
+async function bleTry(svc, action){
+  const cN = await svc.getCharacteristic(BLE_C(2)), cP = await svc.getCharacteristic(BLE_C(3)), cR = await svc.getCharacteristic(BLE_C(4));
+  let nonce = null;
+  for (let i = 0; i < 8 && !nonce; i++) { await sleep(250); const v = bytes(await cN.readValue()); if (v.length === 16 && v.some(b => b)) nonce = v; }
+  if (!nonce) throw new Error('Brama nie odpowiada');
+  const hex = Array.from(nonce, b => b.toString(16).padStart(2, '0')).join('');
+  const sig = new Uint8Array(await crypto.subtle.sign({name: 'ECDSA', hash: 'SHA-256'}, DEV.key,
+    new TextEncoder().encode('ble1|' + DEV.dev + '|' + hex + '|' + action)));
+  const cmd = new Uint8Array(83); cmd[0] = 1; cmd[1] = action === 'open' ? 1 : 2; cmd[2] = 16;
+  cmd.set(new TextEncoder().encode(DEV.dev), 3); cmd.set(sig, 19);
+  const total = Math.ceil(cmd.length / 18);
+  for (let i = 0; i < total; i++) {
+    const part = cmd.slice(i * 18, (i + 1) * 18), pkt = new Uint8Array(part.length + 2);
+    pkt[0] = i; pkt[1] = total; pkt.set(part, 2);
+    await (cP.writeValueWithResponse ? cP.writeValueWithResponse(pkt) : cP.writeValue(pkt));
+  }
+  let res = '';
+  for (let i = 0; i < 10; i++) { await sleep(200); res = new TextDecoder().decode(bytes(await cR.readValue())); if (res && res !== 'GOTOWY') break; }
+  return res;
+}
+async function bleAct(id, action){
+  if (busy[id]) return; busy[id] = true;
+  const card = document.getElementById('c-' + id), msg = card.querySelector('.msg');
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+  msg.className = 'msg'; msg.textContent = 'Wybierz bramę z listy Bluetooth…';
+  let gatt = null;
+  try {
+    if (!DEV || !DEV.dev || !DEV.key) throw new Error('Ten telefon nie jest jeszcze zatwierdzony');
+    const d = await navigator.bluetooth.requestDevice({filters: [{services: [BLE_S]}]});
+    msg.textContent = 'Łączę przez Bluetooth…';
+    gatt = await d.gatt.connect();
+    const svc = await gatt.getPrimaryService(BLE_S);
+    let res = await bleTry(svc, action);
+    if (res === 'NONCE' || res === 'FORMAT') res = await bleTry(svc, action);
+    if (res === 'OK') { msg.className = 'msg ok'; msg.textContent = (action === 'open' ? 'Otwarto' : 'Zamknięto') + ' przez Bluetooth';
+      if (navigator.vibrate) navigator.vibrate(40); }
+    else { msg.className = 'msg err'; msg.textContent = BLE_MSG[res] || ('Brama odpowiedziała: ' + (res || 'brak odpowiedzi')); }
+  } catch (e) {
+    msg.className = 'msg err';
+    msg.textContent = e.name === 'NotFoundError' ? 'Anulowano wybór urządzenia'
+      : e.name === 'NetworkError' ? 'Nie udało się połączyć – podejdź bliżej bramy i spróbuj ponownie'
+      : e.name === 'SecurityError' ? 'Bluetooth zablokowany przez przeglądarkę'
+      : (e.message || 'Błąd Bluetooth');
+  } finally {
+    try { if (gatt && gatt.connected) gatt.disconnect(); } catch (e) {}
+    setTimeout(() => { busy[id] = false; card.querySelectorAll('button').forEach(b => b.disabled = b.dataset.ble ? false : STATUS !== 'approved'); }, 1500);
+  }
 }
 
 // ---- UI ---------------------------------------------------------------------
@@ -492,11 +597,13 @@ async function act(id, action){
   msg.className = 'msg'; msg.textContent = action === 'open' ? 'Otwieram…' : 'Zamykam…';
   try {
     const j = await signed(action, id);
+    if (j._status >= 500) throw new Error('offline');
     if (j.ok) { msg.className = 'msg ok'; msg.textContent = action === 'open' ? 'Otwarto' : 'Zamknięto';
       if (navigator.vibrate) navigator.vibrate(40); }
     else { msg.className = 'msg err'; msg.textContent = j.msg || j.title || 'Nie udało się';
       if (j.status && j.status !== 'approved') setStatus(j.status); }
-  } catch (e) { msg.className = 'msg err'; msg.textContent = 'Błąd połączenia'; }
+  } catch (e) { msg.className = 'msg err'; msg.textContent = 'Błąd połączenia' + (HAS_BT && card.querySelector('.bt') ? ' – użyj Bluetooth' : '');
+    showBt(true); }
   setTimeout(() => { busy[id] = false; card.querySelectorAll('button').forEach(b => b.disabled = STATUS !== 'approved'); }, 1500);
   setTimeout(refresh, 800); setTimeout(refresh, 4000);
 }
@@ -532,6 +639,9 @@ async function pushUi(){
 }
 
 document.querySelectorAll('[data-act]').forEach(b => { b.disabled = true; b.addEventListener('click', () => act(b.dataset.id, b.dataset.act)); });
+document.querySelectorAll('[data-ble]').forEach(b => b.addEventListener('click', () => bleAct(b.dataset.id, b.dataset.ble)));
+// Offline start needs the service worker (it serves the cached app page)
+if ('serviceWorker' in navigator && !CAR) navigator.serviceWorker.register(P + '?asset=sw', {scope: P}).catch(() => {});
 
 // "Ikona na ekran": a separate home-screen icon that opens one opening with a single tap
 document.querySelectorAll('[data-pin]').forEach(b => b.addEventListener('click', async () => {
@@ -600,7 +710,16 @@ def app_page(
             f"<div class='card' id='c-{tid}'><div class='row'>"
             f"<span class='nm'>{html.escape(t['name'])}</span><span class='st'>—</span></div>"
             f"<div class='btns'><button class='op' data-act='open' data-id='{tid}'>Otwórz</button>"
-            f"{close_btn}</div><div class='msg'></div>"
+            f"{close_btn}</div>"
+            + (
+                f"<div class='bt' hidden><button data-ble='open' data-id='{tid}'>"
+                "Otwórz przez Bluetooth</button>"
+                + (f"<button data-ble='close' data-id='{tid}'>Zamknij (Bluetooth)</button>"
+                   if t["can_close"] else "")
+                + "</div>"
+                if t.get("ble") and not car else ""
+            )
+            + "<div class='msg'></div>"
             + ("" if (solo or car) else
                f"<button class='pin' data-pin='{tid}' data-name='{html.escape(t['name'], quote=True)}'>"
                "Ikona na ekran – otwieranie jednym dotknięciem</button>")

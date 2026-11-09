@@ -30,7 +30,8 @@
           "logging": "Records and statistics",
           "autoclose": "Auto-close and button",
           "reminders": "Opening state and reminders (app)",
-          "devices": "App devices (approval)"
+          "devices": "App devices (approval)",
+          "bluetooth": "Bluetooth emergency opening (ESPHome)"
         }
       },
       "targets": {
@@ -79,11 +80,17 @@
         "data": {
           "approve_notify": "Notify service for approvals (notify.…)"
         }
+      },
+      "bluetooth": {
+        "title": "Bluetooth emergency opening",
+        "description": "For a target controlled by ESPHome with the brama_ble component, choose the ESPHome action that receives keys (e.g. `brama_ble_klucze`). Only PUBLIC keys of approved phones of people with permanent or time-limited access are sent (no use-limited links). The Android app (Chrome) can then open over Bluetooth when there is no network or Home Assistant is down. Empty = Bluetooth off for this target.",
+        "data": {}
       }
     },
     "error": {
       "no_targets": "Select at least one opening.",
-      "notify": "Must start with notify."
+      "notify": "Must start with notify.",
+      "ble_service": "Enter an ESPHome action name, e.g. brama_ble_klucze."
     }
   }
 }

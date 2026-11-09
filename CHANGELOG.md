@@ -4,6 +4,21 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [2.0.0] - 2026-11-09
+
+### Dodane
+- **Bluetooth – awaryjne otwieranie bez sieci (Android, Chrome).** Aplikacja łączy się
+  przez BLE ze sterownikiem ESPHome (komponent `brama_ble`, gałąź `esphome`) i wysyła
+  polecenie podpisane kluczem urządzenia na jednorazowym nonce ze sterownika.
+- Synchronizacja kluczy publicznych zatwierdzonych urządzeń do ESPHome (opcje →
+  Bluetooth; po każdej zmianie, co 5 min sprawdzanie, co 6 h ponowne wysłanie) i usługa
+  `gate_access.sync_ble_keys`.
+- Aplikacja uruchamia się bez sieci / przy niedziałającym HA (service worker trzyma
+  stronę i ikony); wtedy dostępne jest sterowanie przez Bluetooth.
+
+### Zmienione
+- Service worker rejestrowany zawsze (nie tylko przy włączaniu powiadomień).
+
 ## [1.9.1] - 2026-11-03
 
 ### Zmienione

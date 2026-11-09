@@ -30,7 +30,9 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
+    async_track_time_interval,
 )
+from datetime import timedelta
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -38,6 +40,7 @@ from .const import (
     CONF_ADMIN_ONLY,
     CONF_APPROVE_NOTIFY,
     CONF_BASE_URL,
+    CONF_BLE_MAP,
     CONF_CLOSE_AFTER,
     CONF_CLOSE_MAP,
     CONF_CONFIRM_OPEN,
@@ -58,6 +61,7 @@ from .const import (
     DEFAULT_RATE_LIMIT,
     DEFAULT_SHOW_CLOSE,
     APPROVE_ACTION_PREFIX,
+    BLE_SYNC_INTERVAL,
     CAR_CODE_TTL,
     CAR_WEBHOOK_ID,
     DOMAIN,
@@ -70,6 +74,7 @@ from .const import (
     STORAGE_VERSION,
 )
 from . import app as gapp
+from . import ble as gble
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -129,8 +134,19 @@ def _user_targets(entry: ConfigEntry, user: dict | None) -> list[str]:
     return configured[:1]
 
 
+def _ble_map(entry: ConfigEntry) -> dict[str, str]:
+    raw = _cfg(entry, CONF_BLE_MAP, {}) or {}
+    targets = _targets(entry)
+    return {t: v for t, v in raw.items() if t in targets and gble.service_name(v)}
+
+
+def _ble_eligible(user: dict | None) -> bool:
+    return bool(user) and user.get("uses_total") is None and _activity(user) in ("active", "pending")
+
+
 def _app_targets_info(hass: HomeAssistant, entry: ConfigEntry, user: dict) -> list[dict]:
     out = []
+    ble_targets = _ble_map(entry) if _ble_eligible(user) else {}
     for t in _user_targets(entry, user):
         st = hass.states.get(t)
         garage = bool(st and st.attributes.get("device_class") == "garage")
@@ -140,6 +156,7 @@ def _app_targets_info(hass: HomeAssistant, entry: ConfigEntry, user: dict) -> li
                 "name": _target_name(hass, t),
                 "can_close": t.split(".")[0] in CLOSE_ACTIONS,
                 "kind": "garage" if garage else "icon",
+                "ble": t in ble_targets,
             }
         )
     return out
@@ -1203,6 +1220,37 @@ async def _save(hass: HomeAssistant, entry: ConfigEntry) -> None:
             "vapid": data.get("vapid"),
         }
     )
+    _schedule_ble_sync(hass, entry)
+
+
+@callback
+def _schedule_ble_sync(hass: HomeAssistant, entry: ConfigEntry, delay: float = 3) -> None:
+    """Debounced push of BLE key lists after any change of people/devices."""
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if not data or not _ble_map(entry):
+        return
+    if data.get("ble_timer"):
+        data["ble_timer"]()
+
+    async def _run(_now) -> None:
+        data["ble_timer"] = None
+        await _ble_sync(hass, entry)
+
+    data["ble_timer"] = async_call_later(hass, delay, _run)
+
+
+async def _ble_sync(hass: HomeAssistant, entry: ConfigEntry, force: bool = False) -> None:
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if not data:
+        return
+    ble_map = _ble_map(entry)
+    if not ble_map:
+        return
+    await gble.async_sync(
+        hass, ble_map, data["users"],
+        lambda u: _user_targets(entry, u), _activity,
+        data.setdefault("ble_sent", {}), force,
+    )
 
 
 def _resolve_target(entry: ConfigEntry, target: str | None) -> str | None:
@@ -1891,6 +1939,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _async_register_global(hass)
     await _register_panel(hass, entry)
     _register_state_tracking(hass, entry)
+
+    async def _ble_tick(_now) -> None:
+        await _ble_sync(hass, entry)
+
+    entry.async_on_unload(
+        async_track_time_interval(hass, _ble_tick, timedelta(seconds=BLE_SYNC_INTERVAL))
+    )
+    _schedule_ble_sync(hass, entry, delay=30)   # after ESPHome devices have connected
+
+    async def _ble_service(call: ServiceCall) -> None:
+        await _ble_sync(hass, entry, force=True)
+
+    hass.services.async_register(DOMAIN, "sync_ble_keys", _ble_service)
+    entry.async_on_unload(lambda: hass.services.async_remove(DOMAIN, "sync_ble_keys"))
     entry.async_on_unload(entry.add_update_listener(_update_listener))
     return True
 
@@ -1903,6 +1965,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
     data = hass.data[DOMAIN].pop(entry.entry_id, None)
     if data:
+        if data.get("ble_timer"):
+            data["ble_timer"]()
         for key in ("unsub_state", "unsub_remind"):
             unsub = data.get(key)
             if unsub:
