@@ -7,7 +7,7 @@
 //  * Po połączeniu telefon czyta jednorazowy nonce (16 B z esp_fill_random), podpisuje
 //    "ble1|<urządzenie>|<nonce hex>|<akcja>" i zapisuje polecenie w kawałkach po 18 B.
 //  * ESP sprawdza: nonce (jednorazowy, ważny 30 s), znane urządzenie, okno ważności dostępu
-//    (gdy zegar jest ustawiony) i podpis ECDSA. Po 5 błędach w 10 min – blokada na 10 min.
+//    (dostęp czasowy wymaga ustawionego zegara) i podpis ECDSA. Po 5 błędach w 10 min – blokada na 10 min.
 //  * Nonce zmienia się po każdym poleceniu i przy każdym połączeniu (brak powtórzeń / replay).
 #pragma once
 
@@ -214,6 +214,9 @@ inline int on_chunk(const std::vector<uint8_t> &x, uint32_t now_ts, bool enabled
   for (int i = 0; i < store_.count; i++)
     if (memcmp(store_.keys[i].dev, dev.data(), 16) == 0) key = &store_.keys[i];
   if (key == nullptr) { fail_("NIEZNANE"); return -1; }
+  // Dostęp ograniczony w czasie wymaga ustawionego zegara (bez HA i internetu po restarcie ESP
+  // zegara nie ma) – wtedy odrzucamy, żeby wygasły dostęp nie zadziałał. Klucze bez limitu działają zawsze.
+  if ((key->from || key->until) && !now_ts) { result_ = "BRAK_CZASU"; return -1; }
   if (now_ts) {
     if (key->from && now_ts < key->from) { fail_("POZA_OKNEM"); return -1; }
     if (key->until && now_ts >= key->until) { fail_("WYGASLO"); return -1; }
