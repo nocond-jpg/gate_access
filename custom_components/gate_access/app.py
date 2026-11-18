@@ -521,8 +521,6 @@ function goOffline(){
   OFFLINE = true; document.body.classList.add('offline');
   if (DEV && DEV.dev && HAS_BT && document.querySelector('.bt')) {
     banner('wait', 'Brak połączenia z domem. Możesz sterować przez <b>Bluetooth</b> – podejdź do bramy.'); showBt(true);
-  } else if (DEV && DEV.dev && document.querySelector('.bt')) {
-    banner('err', 'Brak połączenia z domem. Bluetooth wymaga Chrome na Androidzie.');
   } else banner('err', 'Brak połączenia z domem.');
   clearTimeout(window._retry); window._retry = setTimeout(() => checkDevice().catch(() => {}), 15000);
 }
@@ -750,8 +748,6 @@ def app_page(
         f"<h1>{title}</h1><div class='sub'>{html.escape(person)}</div>"
         "<div id='dev'></div>"
         f"<div id='list'>{''.join(cards) or '<div class=card>Brak przypisanych obiektów.</div>'}</div>"
-        + ("" if (solo or car) else
-           "<button class='carpair' id='carpair'>Połącz z samochodem (Tesla)</button><div id='carbox'></div>")
         + "<div class='push' id='push'></div>"
         f"<script>{js}</script></body></html>"
     )

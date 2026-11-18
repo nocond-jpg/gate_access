@@ -105,22 +105,11 @@ Link jest kluczem — kto go ma, otwiera (w ramach okna czasowego, limitu użyć
 i limitu prób). Wyłączenie lub usunięcie dostępu w panelu działa natychmiast,
 także dla aplikacji i przypomnień.
 
-## Samochód (Tesla) – od 1.9
-
-1. Na telefonie w aplikacji Brama dotknij **Połącz z samochodem (Tesla)** – pojawi się
-   adres i jednorazowy kod (5 min).
-2. W aucie otwórz przeglądarkę, wpisz adres `twoja-domena/api/webhook/tesla`, na
-   klawiaturze ekranowej wpisz kod i **Połącz**.
-3. Strona przejdzie do widoku samochodowego z dużymi przyciskami – dodaj ją do ulubionych.
-   Samochód jest zapisany jako urządzenie „Tesla · przeglądarka” (do usunięcia w panelu).
-
-Adres parowania działa tylko przez 5 minut od wygenerowania kodu (do jego użycia).
-Otwieranie zawsze wymaga dotknięcia przycisku; strona nie otwiera bramy sama.
-
 ## Bluetooth – awaryjne otwieranie bez sieci (od 2.0, Android)
 
 Gdy telefon nie ma zasięgu sieci domowej albo Home Assistant nie działa, aplikacja Brama
 (Chrome na Androidzie) steruje bramą bezpośrednio przez Bluetooth LE ze sterownikiem ESPHome.
+Na iPhonie (Safari nie obsługuje Web Bluetooth) przyciski i komunikaty Bluetooth są ukryte.
 
 **Sterownik:** komponent `brama_ble` z gałęzi `esphome` tego repozytorium
 (`external_components: github://nocond-jpg/gate_access@esphome`) i usługa GATT

@@ -4,6 +4,15 @@ Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/),
 wersjonowanie wg [SemVer](https://semver.org/).
 
+## [2.0.3] - 2026-11-18
+
+### Zmienione
+- Aplikacja: usunięty przycisk „Połącz z samochodem (Tesla)” – przeglądarka w aucie gubiła
+  powiązanie i trzeba było łączyć od nowa. Istniejące urządzenia „Tesla · przeglądarka” można
+  usunąć w panelu.
+- Aplikacja na iPhonie: bez komunikatu o Bluetooth przy braku sieci (Safari nie obsługuje
+  Web Bluetooth, przyciski Bluetooth i tak były ukryte).
+
 ## [2.0.2] - 2026-11-09
 
 ### Dodane
